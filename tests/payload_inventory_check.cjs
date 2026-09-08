@@ -1,0 +1,15 @@
+const fs=require('node:fs'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
+const [exe,profile,mode]=process.argv.slice(2);
+const r=mode==='wsl'?spawnSync('wsl.exe',['-d','Ubuntu','--exec',exe,'runtime','payloads'],{encoding:'utf8',timeout:20000,maxBuffer:65536}):spawnSync(exe,['runtime','payloads'],{encoding:'utf8',timeout:20000,maxBuffer:65536});
+assert.ifError(r.error);assert.equal(r.status,0,r.stderr+r.stdout);
+const result=JSON.parse(r.stdout),expected=JSON.parse(fs.readFileSync(profile,'utf8'));
+assert.equal(result.cache_extraction_performed,false);assert.equal(result.cache_inspected,false);
+assert.equal(result.embedded_payload_bytes,expected.included_bytes);
+assert.equal(result.expanded_payload_bytes,expected.expanded_bytes);
+assert.equal(result.groups.reduce((n,g)=>n+g.expanded_bytes,0),result.expanded_payload_bytes);
+assert.equal(result.groups.reduce((n,g)=>n+g.compressed_files,0),expected.compressed_files);
+assert.ok(result.expanded_payload_bytes>=result.embedded_payload_bytes);
+assert.equal(result.groups.reduce((n,g)=>n+g.embedded_bytes,0),result.embedded_payload_bytes);
+assert.equal(new Set(result.groups.map(g=>g.group)).size,6);
+assert.ok(result.groups.every(g=>g.available?(g.files>0&&g.embedded_bytes>0&&/^[0-9a-f]{64}$/.test(g.manifest_sha256)&&g.cache_directory.endsWith(g.group+'-'+g.manifest_sha256)):(g.files===0&&g.embedded_bytes===0)));
+console.log(JSON.stringify({status:'passed',embedded_bytes:result.embedded_payload_bytes,expanded_bytes:result.expanded_payload_bytes,groups:result.groups.map(({group,embedded_bytes,expanded_bytes,compressed_files,files})=>({group,embedded_bytes,expanded_bytes,compressed_files,files})),cache_extraction_performed:false}));

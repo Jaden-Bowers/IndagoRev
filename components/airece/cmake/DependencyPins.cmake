@@ -1,0 +1,7 @@
+# Source revisions validated by the AIRECE composition build.
+set(AIRECE_XAIR_PIN "edd5c55a9faf974e2147867565ac6a727bd270eb")
+set(AIRECE_XAIR_CFG_PIN "e9a0b0674f0710c4d372dff48fc1b1b6041e65a9")
+set(AIRECE_XAIR_SYM_PIN "b9ee5488ba6141e4429bcbbf80a7bdfb73093242")
+set(AIRECE_ZYDIS_VERSION "5.0.0")
+set(AIRECE_Z3_VERSION "5.0.0")
+set(AIRECE_Z3_PIN "8e3402b215a810a4154eb183a7dfc4e853eb2f52")

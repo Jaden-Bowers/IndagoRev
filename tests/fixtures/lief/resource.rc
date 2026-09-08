@@ -1,0 +1,4 @@
+// Source-backed resource bytes; this is never loaded as executable code.
+101 RCDATA BEGIN
+  0x6e49, 0x6164, 0x6f67, 0x5220, 0x7365, 0x756f, 0x6372, 0x0065
+END

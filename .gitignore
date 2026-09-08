@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+dist/
+build/
+/out/
+*.egg-info/
+
+# Local IndagoRev state and generated analysis results.
+.indago/
+work/
+
+# Independently versioned upstream repositories. Their exact revisions are
+# recorded in config/toolchain.lock.json; do not flatten nested Git histories.
+/xair/AIRECE/
+/xair/XAIR/
+/xair/XAIR_CFG/
+/xair/XAIR_SYM/
+/ghidra/
+
+# Local challenge corpus (independent upstream repository, not product source).
+/flare-on-chals/
+.env
+.env.*
+!.env.example
+*.user
+*.suo
+/workers/ilspy/obj/
+/workers/ilspy/bin/
+/tests/fixtures/managed/obj/
+/tests/fixtures/managed/bin/
+
+# This upstream SDK's headers live in a directory literally named build.
+!/vendor/dbgeng/build/
+!/vendor/dbgeng/build/**

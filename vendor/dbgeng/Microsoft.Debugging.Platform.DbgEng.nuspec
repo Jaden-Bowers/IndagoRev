@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
+  <metadata>
+    <id>Microsoft.Debugging.Platform.DbgEng</id>
+    <version>20260319.1511.0</version>
+    <title>Microsoft Debugger Platform binaries and SDK</title>
+    <authors>Microsoft</authors>
+    <owners>Microsoft</owners>
+    <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <licenseUrl>https://aka.ms/WinSDKLicenseURL</licenseUrl>
+    <projectUrl>https://aka.ms/WinSDKProjectURL</projectUrl>
+    <iconUrl>https://aka.ms/WinSDKIconURL</iconUrl>
+    <description>This package contains the core Microsoft Debugger Platform binaries and SDK, which includes the redistributable DLL files, the static link libraries, and the headers needed to build tools that use the Microsoft Debugging Platform.</description>
+    <summary>This package contains the core of the Microsoft Debugger Platform.</summary>
+    <copyright>© Microsoft Corporation. All rights reserved.</copyright>
+  </metadata>
+</package>

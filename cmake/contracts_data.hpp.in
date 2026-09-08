@@ -1,0 +1,6 @@
+#pragma once
+inline constexpr auto action_schema = R"CONTRACT(@ACTION_SCHEMA@)CONTRACT";
+inline constexpr auto result_schema = R"CONTRACT(@RESULT_SCHEMA@)CONTRACT";
+inline constexpr auto evidence_schema = R"CONTRACT(@EVIDENCE_SCHEMA@)CONTRACT";
+inline constexpr auto runtime_action_schema = R"CONTRACT(@RUNTIME_ACTION_SCHEMA@)CONTRACT";
+inline constexpr auto workbench_schema = R"CONTRACT(@WORKBENCH_SCHEMA@)CONTRACT";

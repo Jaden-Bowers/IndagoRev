@@ -1,0 +1,36 @@
+diff --git a/include/xair/xair.h b/include/xair/xair.h
+index 840ed05..85bbff7 100644
+--- a/include/xair/xair.h
++++ b/include/xair/xair.h
+@@ -620,6 +620,10 @@ xair_status xair_set_jump(
+     const xair_value_id *args,
+     size_t arg_count);
+ 
++/* Reopen an unfrozen builder block for CFG stitching; instructions/values
++ * remain unchanged. The caller must install a new terminator before use. */
++xair_status xair_block_reopen(xair_module *module, xair_block_id block);
++
+ xair_status xair_set_cbranch(
+     xair_module *module,
+     xair_block_id block,
+diff --git a/src/xair.c b/src/xair.c
+index ca711fb..39f793c 100644
+--- a/src/xair.c
++++ b/src/xair.c
+@@ -1810,6 +1810,16 @@ xair_status xair_build_call(xair_module *module, xair_block_id block,
+     return xair_build_op_v3(module, block, &spec, out_results);
+ }
+ 
++xair_status xair_block_reopen(xair_module *module, xair_block_id block) {
++    xair_term_rec *term;
++    if (module == NULL || module->frozen || !valid_block(module, block)) return XAIR_ERR_BAD_ARG;
++    term = &module->blocks[block].term;
++    memset(term, 0, sizeof(*term));
++    term->kind = XAIR_TERM_NONE;
++    term->condition = term->true_target = term->false_target = XAIR_INVALID_ID;
++    return XAIR_OK;
++}
++
+ static xair_status set_term(xair_module *module, xair_block_id block, const xair_term_rec *term) {
+     xair_status status;
+     xair_term_rec copy;

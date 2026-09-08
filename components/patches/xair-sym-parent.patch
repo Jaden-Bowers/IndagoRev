@@ -1,0 +1,9 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -4,1 +4,4 @@
+-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../xair/cmake/XAIRCommon.cmake")
++if(TARGET xair)
++    get_target_property(_indago_xair_source xair SOURCE_DIR)
++    include("${_indago_xair_source}/cmake/XAIRCommon.cmake")
++elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../xair/cmake/XAIRCommon.cmake")

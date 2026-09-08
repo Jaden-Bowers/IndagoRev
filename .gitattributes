@@ -1,0 +1,2 @@
+vendor/frida/linux/libfrida-core.a filter=lfs diff=lfs merge=lfs -text
+vendor/frida/windows/frida-core.lib filter=lfs diff=lfs merge=lfs -text

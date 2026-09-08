@@ -1,0 +1,112 @@
+{
+  "schema": "indago.toolchain-lock.v1",
+  "qualified": false,
+  "qualification_state": "development-unqualified",
+  "reason": "The integration checkout differs from the original AIRECE pins. AIRECE is now compiled into IndagoRev against the recorded local XAIR components; cross-platform qualification remains outstanding.",
+  "observed_on": "2026-09-05",
+  "components": {
+    "zstd": {
+      "path": "vendor/zstd/upstream",
+      "version": "1.5.7",
+      "source_sha256": "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3",
+      "integration": "source-built static C codec; lossless embedded-file representation; original bytes and hashes retained",
+      "provenance": "vendor/zstd/PROVENANCE.md"
+    },
+    "wireshark": {
+      "version": "4.6.8",
+      "windows_archive_sha256": "779ee66f846376942a3b631a78bba8c3d509697d07743349e1893056211d05e3",
+      "linux_source_sha256": "c0f1ccf217bc0d3b51a9c03ea178b0f7df682e475da26a2d21cd4a1bdd9579d0",
+      "integration": "bundled upstream Windows and source-built Linux offline native workers; no capture driver",
+      "provenance": "vendor/wireshark/PROVENANCE.md"
+    },
+    "lief": {
+      "version": "1.0.0",
+      "windows_sdk_sha256": "1ad0799a5e699505f7e4ad31fd196105867cf29fd8b74485f32d02cfaba94fe2",
+      "linux_sdk_sha256": "81b86bcc69d311a01ec1914d26c31ebbb605ac761ec02f10bc5b588de74a8e91",
+      "integration": "statically linked upstream C++ SDK; same-executable bounded metadata worker",
+      "provenance": "vendor/lief/PROVENANCE.md"
+    },
+    "ilspy": {
+      "version": "11.0.0.9375",
+      "runtime_version": "10.0.11",
+      "integration": "bundled self-contained ILSpy worker; dependency resolution disabled",
+      "dependency_pins": "workers/ilspy/dependency-hashes.json",
+      "provenance": "vendor/ilspy/PROVENANCE.md"
+    },
+    "enrichment": {
+      "capa_version": "9.4.0",
+      "floss_version": "3.1.1",
+      "integration": "bundled upstream standalone workers; no Python dependency in the native core",
+      "dependency_pins": "vendor/enrichment/releases.json",
+      "provenance": "vendor/enrichment/PROVENANCE.md"
+    },
+    "gdb": {
+      "path": "vendor/gdb",
+      "version": "17.1",
+      "source": "https://ftp.gnu.org/gnu/gdb/gdb-17.1.tar.xz",
+      "source_sha256": "14996f5f74c9f68f5a543fdc45bca7800207f91f92aeea6c2e791822c7c6d876",
+      "integration": "private source-built embedded Linux GDB/MI engine; Python and Guile disabled; source archive and GPL notices retained"
+    },
+    "frida": {
+      "path": "vendor/frida",
+      "version": "17.17.0",
+      "windows_devkit_sha256": "84767bf9e2c55956c6c337071fe928de02a34f17f1dee4e9832b52a0798b8c1d",
+      "linux_devkit_sha256": "483e1a25945cebaa69e61c09d7804692c42d234cab0c58261a73382163027a2e",
+      "integration": "static native core devkit in embedded private host; fixed bounded recipes"
+    },
+    "dbgeng": {
+      "path": "vendor/dbgeng",
+      "package": "Microsoft.Debugging.Platform.DbgEng",
+      "version": "20260319.1511.0",
+      "package_sha256": "875678516f9ceed4a1c8b9b106d165106fcaa38723ad7c584c47b95b231600de",
+      "integration": "private embedded Microsoft binaries; native IDebugClient adapter"
+    },
+    "dynamorio": {
+      "path": "vendor/dynamorio",
+      "tag": "release_11.3.0",
+      "revision": "59352ff71fefdb8542fc5bd2ae3b76181a50072e",
+      "integration": "source-built x86/x64 engine and native host/client; embedded payload"
+    },
+    "airece": {
+      "path": "components/airece",
+      "revision": "23997f2e7430baff1d4d5e087e4e1bda786c45f0",
+      "integration": "statically-linked, same-executable worker"
+    },
+    "xair": {
+      "path": "xair/XAIR",
+      "revision": "02c37b05348ac32a1019d4947e57964a2024ac9f",
+      "local_extension": "xair_block_reopen builder API in include/xair/xair.h and src/xair.c permits reconnecting unfrozen lifted blocks; instruction semantics unchanged",
+      "local_patch": "components/patches/xair-block-reopen.patch",
+      "airece_expected_revision": "edd5c55a9faf974e2147867565ac6a727bd270eb"
+    },
+    "xair_cfg": {
+      "path": "xair/XAIR_CFG",
+      "revision": "aea66d728ff824f09455e4c5447e210247a22a0a",
+      "airece_expected_revision": "e9a0b0674f0710c4d372dff48fc1b1b6041e65a9"
+    },
+    "xair_sym": {
+      "path": "xair/XAIR_SYM",
+      "revision": "e545ea94f092eae9f03c9e7f3cc79f58d7f0c469",
+      "airece_expected_revision": "b9ee5488ba6141e4429bcbbf80a7bdfb73093242"
+    },
+    "z3": {
+      "version": "5.0.0",
+      "revision": "8e3402b215a810a4154eb183a7dfc4e853eb2f52",
+      "integration": "static source build via XAIR_SYM"
+    },
+    "ghidra": {
+      "desired_version": "12.1.2",
+      "installed": true,
+      "development_distribution": "../IR/kb/ghidra_12.1.2_PUBLIC",
+      "source_path": "ghidra",
+      "source_revision": "2035b8153afaf7ce2edde24a2c80b62bbcf5127f",
+      "source_description": "Ghidra_12.1.3_build-1090-g2035b8153a",
+      "integration": "private embedded 12.1.2 distribution, authored persistent DecompInterface worker, and OpenJDK; source checkout is not used as the runtime",
+      "java_distribution": "Eclipse Temurin 25.0.4.1+1 x64 JDK",
+      "java_windows_archive_sha256": "00c847d804f4a78e9f04f2683faf14fed898535b177b7fc704486cb0284e9283",
+      "java_linux_archive_sha256": "dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e",
+      "java_source": "https://github.com/adoptium/temurin25-binaries/releases/tag/jdk-25.0.4.1%2B1",
+      "payload_integrity": "CMake embeds a SHA-256 manifest for every staged file, including distribution and Java notices"
+    }
+  }
+}

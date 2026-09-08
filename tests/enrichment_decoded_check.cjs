@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {spawnSync}=require('node:child_process');
+const [exe,fixture,mapfile]=process.argv.slice(2);
+const line=fs.readFileSync(mapfile,'utf8').split(/\r?\n/).find(line=>line.includes('decode_marker'));
+assert.ok(line,'Fixture decoder absent from source-built linker map');
+const match=line.match(/\b([0-9a-fA-F]{8,16})\s+f\b/);
+assert.ok(match,'Fixture linker-map address missing');
+const address='0x'+BigInt('0x'+match[1]).toString(16);
+const workspace=fs.mkdtempSync(path.join(os.tmpdir(),'indago-decoded-cli-'));
+function call(args){const result=spawnSync(exe,['--workspace',workspace,...args],{encoding:'utf8',timeout:30000,maxBuffer:2097152});assert.ifError(result.error);assert.ok([0,3].includes(result.status),result.stdout+result.stderr);return JSON.parse(result.stdout);}
+call(['project','create','--name','decode']);
+call(['target','import','--project','decode','--file',path.resolve(fixture)]);
+const response=call(['query','--project','decode','--backend','floss','--operation','strings','--mode','decoded','--address',address,'--timeout-ms','20000','--max-output-bytes','1048576','--max-items','64']);
+assert.equal(response.data.native_document_complete,true);
+assert.ok(response.data.native_document.strings.decoded_strings.some(row=>row.string==='Indago offline decoded marker'));
+assert.ok(response.data.strings.some(row=>row.name==='Indago offline decoded marker'&&row.location_role==='emulated_recovery_site; not string storage address'));
+console.log(JSON.stringify({status:'passed',workspace,decoder_address:address,target_executed:false,evidence:response.evidence_ids[0]}));

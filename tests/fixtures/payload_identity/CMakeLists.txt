@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.25)
+project(IndagoPayloadIdentityCheck LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+get_filename_component(repo "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+add_executable(payload_identity_check main.cpp "${repo}/src/sha256.cpp")
+target_include_directories(payload_identity_check PRIVATE "${repo}/include" "${repo}/vendor" "${repo}/src")

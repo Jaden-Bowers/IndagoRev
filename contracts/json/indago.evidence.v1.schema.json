@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://indagorev.local/contracts/indago.evidence.v1.schema.json",
+  "title": "IndagoRev evidence",
+  "type": "object",
+  "required": ["schema", "id", "project", "revision", "job_id", "state", "producer", "status", "artifact_sha256", "raw_sha256", "request", "created_at"],
+  "properties": {
+    "schema": {"const": "indago.evidence.v1"},
+    "id": {"type": "string", "pattern": "^ev_"},
+    "project": {"type": "string"},
+    "revision": {"type": "string", "pattern": "^rev_"},
+    "job_id": {"type": "string", "pattern": "^job_"},
+    "status": {"type": "string"},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "raw_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "request": {"type": "object"},
+    "created_at": {"type": "string"},
+    "state": {"enum": ["observed", "derived", "validated", "inferred", "contradicted", "unknown"]},
+    "producer": {"type": "string", "minLength": 1},
+    "location": {"type": ["object", "null"]},
+    "completeness": {"enum": ["complete", "partial", "unknown"]}
+  },
+  "additionalProperties": true
+}

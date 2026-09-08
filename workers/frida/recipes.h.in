@@ -1,0 +1,2 @@
+static const char recipe_source[] =
+@RECIPE_SOURCE@;

@@ -1,0 +1,9 @@
+[
+  {"name":"expected-1.3.1.zip","git_blob_sha1":"2b45207bc28c93b9ee6b5d857d44a363f8eada7a"},
+  {"name":"frozen-61dce5a.zip","git_blob_sha1":"bff338e03943913731527598770aac35af8d1fc5"},
+  {"name":"json-3.12.0.zip","git_blob_sha1":"296e9fe34c05a4f2a91f83125314e6160e008873"},
+  {"name":"mbedtls-4.0.0.r0.gec4044008d.zip","git_blob_sha1":"56a61dddaa5a608f8125fa64616dca90a1564736"},
+  {"name":"spdlog-1.17.0.zip","git_blob_sha1":"1806ed05a0c5e425662e3ba3bb45d98c4dcdda30"},
+  {"name":"tcb-span-b70b0ff.zip","git_blob_sha1":"e3cf56d2a7683a4663d226fe8745f2c53ba0d3c4"},
+  {"name":"utfcpp-4.0.9.zip","git_blob_sha1":"7a1e30841777bfba42dbfa7f5ea8539febe16f21"}
+]
