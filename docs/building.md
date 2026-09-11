@@ -56,6 +56,16 @@ engines are installed. Do not assume all engines are present: inspect capabiliti
 on the finished executable. The native presets deliberately use empty dedicated
 staging paths so local development payloads cannot mask clone/build defects.
 
+## Native clone smoke check
+
+CI builds both native presets from recursively initialized checkouts without
+optional SDK staging. `tests/native_clone_smoke.ps1 -Executable PATH` (PowerShell
+7) checks CLI startup, import, XAIR inventory/CFG/semantics, and persisted AIRECE
+evidence. It uses the pinned engine's synthetic control-flow PE and never executes
+the target. The fixture intentionally contains unresolved flow: partial native
+verdicts are expected, not promoted to complete analysis. This is a build smoke
+check, not full engine or challenge qualification.
+
 ## Local data
 
 Build outputs, investigation workspaces, model credentials, and the FLARE-On corpus
