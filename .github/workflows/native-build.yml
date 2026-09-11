@@ -30,9 +30,7 @@ jobs:
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }} --parallel 2
       - name: CLI smoke check (no target execution)
+        timeout-minutes: 3
         shell: pwsh
         run: |
-          & '${{ matrix.executable }}' version
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & '${{ matrix.executable }}' capabilities
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./tests/native_clone_smoke.ps1 -Executable '${{ matrix.executable }}'

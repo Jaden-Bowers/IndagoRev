@@ -2,7 +2,7 @@
   "schema": "indago.toolchain-lock.v1",
   "qualified": false,
   "qualification_state": "development-unqualified",
-  "reason": "The integration checkout differs from the original AIRECE pins. AIRECE is now compiled into IndagoRev against the recorded local XAIR components; cross-platform qualification remains outstanding.",
+  "reason": "AIRECE is compiled into IndagoRev against the pinned XAIR submodules. Integration extensions are committed in the owned upstream repositories. Fresh-clone build checks are separate from full cross-platform qualification, which remains outstanding.",
   "observed_on": "2026-09-11",
   "components": {
     "zstd": {

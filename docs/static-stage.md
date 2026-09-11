@@ -81,5 +81,5 @@ is not yet qualified. Existing dependency pin discrepancies remain documented in
 `config/toolchain.lock.json`. The native primary binary is not a self-contained
 single-file distribution of Ghidra. AIRECE runs in `indago __airece` internally
 so cancellation can terminate the analysis process without a second executable.
-Z3 is built from source (its pinned upstream tag is fetched unless
+Z3 is built from source (its pinned upstream commit is fetched unless
 `XAIR_Z3_SOURCE_ROOT` points to an existing checkout).
