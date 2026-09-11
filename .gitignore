@@ -31,3 +31,9 @@ work/
 # This upstream SDK's headers live in a directory literally named build.
 !/vendor/dbgeng/build/
 !/vendor/dbgeng/build/**
+
+# zstd's source-controlled CMake entry point also lives under build/.
+!/vendor/zstd/upstream/build/
+/vendor/zstd/upstream/build/*
+!/vendor/zstd/upstream/build/cmake/
+!/vendor/zstd/upstream/build/cmake/**
