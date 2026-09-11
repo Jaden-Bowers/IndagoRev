@@ -10,9 +10,13 @@ function Invoke-Native([string[]]$Arguments) {
     $result = $raw | ConvertFrom-Json
     # This fixture intentionally includes an unresolved indirect call. Preserve
     # its partial verdict, but never accept timeouts or empty/truncated results.
-    if ($code -eq 3 -and ($result.status -ne 'partial' -or
-        $result.data.native_status -ne 'ok' -or $result.data.truncated)) {
-        throw "Unexpected partial result: $raw"
+    if ($code -eq 3) {
+        $nativePartial = ($result.backend -eq 'xair' -and $result.data.native_status -eq 'ok') -or
+            ($result.backend -eq 'airece' -and $result.data.native_exit_code -eq 3 -and
+             $result.data.native_output -match '^fn 0x140001000 ' -and $result.data.locations.Count -gt 0)
+        if ($result.status -ne 'partial' -or !$nativePartial -or $result.data.truncated) {
+            throw "Unexpected partial result: $raw"
+        }
     }
     return $result
 }
