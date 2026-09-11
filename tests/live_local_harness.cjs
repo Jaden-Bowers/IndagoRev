@@ -55,8 +55,9 @@ try {
       creation.objective='Use kind=acceptance with the automatically returned inventory evidence ID and /program/entry. This gathers native Ghidra/XAIR views and symbolic branch/taint findings. Follow the relevant application callee from function_frontier using acceptance again. Preserve all native limits and unknowns; never execute the target or claim a solved challenge.';
       creation.budget={max_actions:14,wall_ms:300000,output_bytes:2097152};
       if(mode==='solve') {
-        creation.objective='Solve this static output-recovery challenge. Use kind=acceptance on the automatically returned native entry pointer, then follow the relevant application callee with kind=acceptance. When automatic_recovery returns a final candidate answer, submit it with reasoning operation solution using the exact recovery id and reasoning revision. After verified_static_output succeeds, finish with {solved:true}. Do not execute the target, use outside knowledge, or finish partial while a verified recovery is available.';
+        creation.objective='Recover the question-bound static decoder result. Use kind=acceptance on the automatically returned native entry pointer, then follow the relevant application callee with kind=acceptance. When automatic_proof returns, submit reasoning operation solution using its exact proof id, answer, and reasoning revision. Finish with {solved:true} only after the required verified_transformation proof succeeds. Do not describe this as observed output, accepted input, or independent grading.';
         creation.required_facts=['final challenge answer'];
+        creation.proof_requirements=['verified_transformation'];
       }
     }
   }
@@ -71,7 +72,7 @@ try {
   const events=run(['harness','events','--project','live-local','--id',inv.id,'--limit','64']);
   const audit=run(['harness','audit','--project','live-local','--id',inv.id,'--limit','16']);
   summary={...summary,investigation:inv.id,elapsed_ms:Date.now()-started,result:explored,controller,actions,events,audit,investigation_state:shown,
-    assessment:{native_action_count:actions.records?.length||0,cited_claim_count:shown.report?.claims?.length||0,inventory_label_check:inventoryLabelCheck(events,shown),verified_solve:false}};
+    assessment:{native_action_count:actions.records?.length||0,cited_claim_count:shown.report?.claims?.length||0,inventory_label_check:inventoryLabelCheck(events,shown),requirements_verified:false,verified_solve:shown.report?.verified_solve===true}};
   if(mode==='assisted'||mode==='acceptance'||mode==='solve') {
     const claims=shown.report?.claims||[];
     summary.assessment.saved_observation_checks=mode==='solve'?claims.length>=1:claims.length>=2&&claims.every(c=>c.check_result?.status==='passed');
@@ -83,10 +84,10 @@ try {
       if(!summary.assessment.symbolic_views)process.exitCode=1;
     }
     if(mode==='solve') {
-      summary.assessment.verified_solve=shown.report?.verified_solve===true&&shown.reasoning?.verified_solve===true&&shown.status==='answered';
+      summary.assessment.requirements_verified=shown.report?.requirements_verified===true&&shown.reasoning?.requirements_verified===true&&shown.status==='answered'&&shown.report?.proof_kinds?.includes('verified_transformation')&&shown.report?.verified_solve===false&&shown.reasoning?.verified_solve===false&&shown.report?.independently_graded===false&&shown.report?.behavior_verified===false;
       summary.assessment.answer=shown.report?.answer;
       summary.assessment.decoder_stages=shown.reasoning?.recoveries?.at(-1)?.stages?.length||0;
-      if(!summary.assessment.verified_solve||!summary.assessment.answer||summary.assessment.decoder_stages<1)process.exitCode=1;
+      if(!summary.assessment.requirements_verified||!summary.assessment.answer||summary.assessment.decoder_stages<1)process.exitCode=1;
     }
   } else if(!summary.assessment.native_action_count||!summary.assessment.cited_claim_count||summary.assessment.inventory_label_check.status!=='labels_match')process.exitCode=1;
   if(mode==='behavior') {

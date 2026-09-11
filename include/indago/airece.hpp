@@ -8,11 +8,14 @@ struct NativeProcessOptions {
     std::uint64_t wall_time_ms{120000};
     std::size_t max_output_bytes{1024 * 1024};
     fs::path cancel_file;
+    fs::path stdin_file;
+    fs::path working_directory;
     std::function<bool()> should_cancel;
 };
 struct NativeProcessResult {
     int exit_code{-1};
     bool timed_out{}, cancelled{}, truncated{};
+    bool output_complete{}; // Both pipes reached EOF, not merely parent exit.
     std::string output, error;
 };
 // No shell is involved. Each argument is passed as one literal argument.

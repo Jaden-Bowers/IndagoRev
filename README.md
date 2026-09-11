@@ -1,5 +1,12 @@
 # IndagoRev native static and runtime stages
 
+The native [FLARE-On catalogue and independent grading commands](docs/flare-on-benchmark.md)
+cover a frozen 116-challenge 2014–2024 development set; 2025 remains held out.
+Three incomplete challenges are explicitly excluded. Fixed-answer grading is
+separate from behavioral proof; synthetic diagnostics are scored separately.
+The [solve-verification proof model](docs/solve-verification.md) defines the
+question-bound static, runtime, acceptance, and independent-grade gates.
+
 The [deterministic knowledge workbench](docs/knowledge-workbench.md) adds behavior
 contracts/hypotheses, dependency freshness, graph packets, coverage gaps, recognition,
 derived artifacts, finite validators, resumable batches and portable evidence bundles.

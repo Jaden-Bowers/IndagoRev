@@ -20,6 +20,9 @@ temporary_free=$(df -B1 --output=avail /tmp | tail -n 1 | tr -d ' ')
 mkdir -p "$root/out/qualification-linux-native"
 report=$(mktemp -d "$root/out/qualification-linux-native/checks.XXXXXX")
 binaries=$(mktemp -d /tmp/indago-model-binaries.XXXXXX)
+# /tmp can be an 8 GiB tmpfs: keep receipt workspaces on the native build
+# filesystem so the production 20 GiB storage floor is exercised, not bypassed.
+workspaces=$(mktemp -d "$build/test-workspaces.XXXXXX")
 active_binary=''
 cleanup(){
   if [[ -n "$active_binary" ]];then
@@ -44,11 +47,12 @@ for name in "${names[@]}";do
   free=$(df -B1 --output=avail /mnt/c | tail -n 1 | tr -d ' ')
   ((free>21474836480+reserve)) || { echo 'Native-test storage floor reached' >&2;exit 1; }
   active_binary="$binaries/$name"
-  c++ -std=c++20 -O0 -DINDAGO_SOURCE_ROOT=\""$root"\" -I"$root/include" -I"$root/vendor" -I"$root/vendor/sqlite3" \
+  cc "$root/tests/io_fixture.c" -o "$binaries/indago_io_fixture"
+  c++ -std=c++20 -O0 -DINDAGO_HAS_XAIR=1 -DINDAGO_SOURCE_ROOT=\""$root"\" -I"$root/include" -I"$root/vendor" -I"$root/vendor/sqlite3" -I"$root/xair/XAIR/include" \
     "$root/tests/$name.cpp" -Wl,--start-group "${libraries[@]}" -Wl,--end-group -ldl -pthread -o "$active_binary"
   # Existing XAIR worker discovery uses a sibling indago executable in tests.
   ln -sf "$build/indago" "$binaries/indago"
-  timeout --kill-after=5s 60s "$active_binary" > "$report/$name.stdout.log" 2> "$report/$name.stderr.log" || {
+  TMPDIR="$workspaces" timeout --kill-after=5s 60s "$active_binary" > "$report/$name.stdout.log" 2> "$report/$name.stderr.log" || {
     cat "$report/$name.stdout.log" "$report/$name.stderr.log";exit 1;
   }
   sha256sum "$active_binary" > "$report/$name.executable.sha256"

@@ -129,7 +129,7 @@ J harness_read_packet(StaticService &service, const J &inv, const J &payload) {
     keys(r,{"project","collection","offset","limit","id","pointer"});
     const auto state=inv.value("reasoning",reasoning_initial(inv));
     const auto collection=r.value("collection",std::string("obligations"));
-    if(!std::set<std::string>{"obligations","hypotheses","candidates","experiments","recoveries","solutions"}.contains(collection))throw std::runtime_error("Unknown reasoning collection");
+    if(!std::set<std::string>{"questions","obligations","hypotheses","candidates","experiments","recoveries","proofs","solutions"}.contains(collection))throw std::runtime_error("Unknown reasoning collection");
     J records=J::array();auto offset=bound(r,"offset",0,256),limit=bound(r,"limit",1,8);
     if(!limit)throw std::runtime_error("Positive reasoning page limit required");
     auto cursor=offset;
@@ -154,10 +154,12 @@ J harness_read_packet(StaticService &service, const J &inv, const J &payload) {
       {"derive","{obligation,source:{evidence_id,pointer},representation:hex|utf8,spec:{method:slice|xor|hex_decode|base64_decode,key_hex?},encoding,assumptions}"},
       {"validate_transform_candidate","{id,expected:{evidence_id,pointer},representation:hex|utf8,spec} checks finite bytes, not target acceptance"},
       {"validate_candidate","{id,actual:{evidence_id,pointer}} compares exact native hex representation, not acceptance"},
-      {"experiment","{hypothesis,candidate,prediction,observe:branch_witness|capture_reanalyze|io_result,pointer,expected,sources}"},
+      {"experiment","{hypothesis,candidate,prediction,observe:branch_witness|capture_reanalyze|io_result,pointer,expected,sources,fact_index?,proof_kind?:observed_output|accepted_input}; output requires /data/output text, accepted input requires /data/accepted=true plus observation /data/input_hex"},
       {"feedback","{id,session,observation,sha256} requires operator-created session read grant; no execution"},
-      {"recover_initialized_x86","{source:{evidence_id,pointer}} deterministically extracts contiguous local-byte initializers and peels bounded recognized x86 XOR loops"},
-      {"solution","{recovery,answer} verifies an exact model-selected answer against a recovered final static output"}}},
+      {"prove_observation","{experiment,answer} creates the exact runtime proof type planned by a matching io_result experiment"},
+      {"recover_initialized_x86","{source:{evidence_id,pointer},fact_index} recovers a question-bound candidate using XAIR-decoded reachable x86 loops"},
+      {"verify_transformation","{recovery,control_flow:{evidence_id,pointer},entry_flow:{evidence_id,pointer}} requires same-function XAIR CFG and the native entry/call selector"},
+      {"solution","{proof,answer} binds an exact selected answer to the proof's original question and obligation"}}},
       {"envelope","reason payload={request:{operation,expected_revision,record}}; retrieve investigation/reasoning with collection,offset,limit or id. Every update increments reasoning revision."}};
   } else if (family == "investigation" && op == "audit") {
     keys(r,{"project","offset","limit"});
@@ -480,10 +482,10 @@ J harness_explore(StaticService &service, const J &r,
           if(show().contains("reasoning")) {
             const auto reasoning=show().at("reasoning");
             packet["reasoning_progress"]={{"revision",reasoning.at("revision")},{"records",J::array()}};
-            for(const auto *collection:{"obligations","hypotheses","candidates","experiments","recoveries","solutions"})
+            for(const auto *collection:{"questions","obligations","hypotheses","candidates","experiments","recoveries","proofs","solutions"})
               for(const auto &item:reasoning.at(collection))
                 if(packet["reasoning_progress"]["records"].size()<24)
-                  packet["reasoning_progress"]["records"].push_back({{"id",item.at("id")},{"state",item.at("state")}});
+                  packet["reasoning_progress"]["records"].push_back({{"id",item.at("id")},{"state",item.value("state",std::string("declared"))}});
           }
           if (state.contains("observed_values")) {
             packet["observed_values"] = state["observed_values"];
@@ -616,7 +618,7 @@ J harness_explore(StaticService &service, const J &r,
               "retrieve payload={family:evidence,operation:read,request:{id,pointer,offset?,limit?,max_bytes?}} reads native pages; max_bytes<=2048, limit<=16. Follow next_offset for truncated text. "
               "analyze payload={proposal:{gap,prediction,expected_evidence,fallback},request:{backend,operation,address?,budget?,arguments?}} requests extra native evidence. Proposal fields are strings. "
               "finish payload={saved:true} assembles a PARTIAL report of saved observations with unresolved facts. Do not write report prose or claims. Snapshot equality is not a behavioral proof or challenge solve. Native partial results remain partial. "
-              "When acceptance returns automatic_recovery with a candidate answer, use reason payload={request:{operation:solution,expected_revision,record:{recovery,answer}}}; copy the recovery id and select the exact answer. After a successful verified_static_output result, finish payload={solved:true} assembles the verified report. "
+              "When acceptance returns automatic_proof, use reason payload={request:{operation:solution,expected_revision,record:{proof,answer}}}; copy the proof id and exact answer. The proof remains bound to its original question. After the declared proof requirement succeeds, finish payload={solved:true} assembles the native report. "
               "If work fails, choose a different bounded query or retain the gap. Do not retry unknown outcomes. Finish may be rejected if an unvisited callee and a full four-action budget remain.";
             if(state["generations"].get<unsigned>()+1==max_generations)
               messages[0]["content"]=messages[0]["content"].get<std::string>()+" FINAL RESERVED TURN: finish with {solved:true} when solution validation succeeded; otherwise finish with {saved:true}. No more actions.";
@@ -869,21 +871,38 @@ J harness_explore(StaticService &service, const J &r,
             if(feedback.dump().size()>4096)feedback={{"schema","indago.function-packet.v1"},{"partial",true},{"gap","Workflow completed with oversized summaries; retrieve harness action history"}};
             if(kind=="acceptance") {
               try {
-                std::string evidence;
+                std::string evidence,control_evidence;
                 for(const auto &view:work.at("results"))
                   if(view.value("backend",std::string())=="ghidra"&&view.value("operation",std::string())=="decompile"&&view.contains("result")&&
                      !view.at("result").value("evidence_ids",J::array()).empty())evidence=view.at("result").at("evidence_ids").at(0);
-                if(!evidence.empty()) {
+                  else if(view.value("backend",std::string())=="xair"&&view.value("operation",std::string())=="cfg"&&view.contains("result")&&
+                     !view.at("result").value("evidence_ids",J::array()).empty())control_evidence=view.at("result").at("evidence_ids").at(0);
+                if(!evidence.empty()&&!control_evidence.empty()) {
                   const auto current=show();const auto reasoning=current.value("reasoning",reasoning_initial(current));
                   const bool known=std::any_of(reasoning.at("recoveries").begin(),reasoning.at("recoveries").end(),[&](const J &item){
                     return !item.at("sources").empty()&&item.at("sources").at(0).at("evidence_id")==evidence;});
                   if(!known) {
+                    std::size_t fact_index=0;
+                    for(std::size_t i=0;i<current.value("proof_requirements",J::array()).size();++i)
+                      if(current.at("proof_requirements")[i]=="verified_transformation"){fact_index=i;break;}
                     auto updated=owned("reason",{{"request",{{"operation","recover_initialized_x86"},
-                      {"expected_revision",reasoning.at("revision")},{"record",{{"source",{{"evidence_id",evidence},{"pointer","/decompilation/decompiled_c"}}}}}}}});
+                      {"expected_revision",reasoning.at("revision")},{"record",{{"source",{{"evidence_id",evidence},{"pointer","/decompilation/decompiled_c"}}},
+                        {"fact_index",fact_index}}}}}});
+                    const auto recovery=updated.at("reasoning").at("recoveries").back();
+                    updated=owned("reason",{{"request",{{"operation","verify_transformation"},
+                      {"expected_revision",updated.at("reasoning").at("revision")},{"record",{{"recovery",recovery.at("id")},
+                        {"control_flow",{{"evidence_id",control_evidence},{"pointer","/operation"}}},
+                        {"entry_flow",{{"evidence_id",payload.at("evidence_id")},{"pointer",payload.at("pointer")}}}}}}}});
+                    const auto proof=updated.at("reasoning").at("proofs").back();
                     feedback={{"schema","indago.recovery-packet.v1"},
-                      {"automatic_recovery",updated.at("reasoning").at("recoveries").back()},
+                      {"automatic_recovery",{{"id",recovery.at("id")},{"answer",recovery.at("answer")},
+                        {"fact_index",recovery.at("fact_index")},{"state",recovery.at("state")},
+                        {"decoder_stages",recovery.at("stages").size()}}},
+                      {"automatic_proof",{{"id",proof.at("id")},{"answer",proof.at("answer")},
+                        {"fact_index",proof.at("fact_index")},{"question",proof.at("question")},
+                        {"kind",proof.at("kind")},{"state",proof.at("state")}}},
                       {"reasoning_revision",updated.at("reasoning").at("revision")},
-                      {"next_action","Submit reasoning operation solution with this exact recovery id, answer, and reasoning revision"}};
+                      {"next_action","Submit reasoning operation solution with this exact proof id, answer, and reasoning revision. The full signed proof remains in investigation/reasoning."}};
                   }
                 }
               } catch(const std::exception &e) {
@@ -961,6 +980,7 @@ J harness_explore(StaticService &service, const J &r,
             state["last_feedback"]={{"status","reasoning_saved"},{"reasoning_revision",updated.at("reasoning").at("revision")}};
             const auto operation=payload.at("request").at("operation").get<std::string>();
             if(operation=="recover_initialized_x86")state["last_feedback"]["record"]=updated.at("reasoning").at("recoveries").back();
+            if(operation=="verify_transformation"||operation=="prove_observation")state["last_feedback"]["record"]=updated.at("reasoning").at("proofs").back();
             if(operation=="solution")state["last_feedback"]["record"]=updated.at("reasoning").at("solutions").back();
           } else if (kind == "record") {
             auto entry=model_record_fact(service.store(),show(),payload);

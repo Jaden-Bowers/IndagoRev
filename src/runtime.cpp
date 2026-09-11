@@ -993,8 +993,11 @@ J runtime_capabilities() {
                         {"packet_capture",false},{"protocol_decoding",false},{"async_completion",false},
                         {"remote_delivery_proven",false}}}}},
           {"capture_reanalysis", {"capture", "reanalyze", "feedback", "lineage"}},
+          {"bounded_stdio",{{"operation","io-run"},{"max_input_bytes",16384},{"max_output_bytes",65536},
+            {"max_wall_ms",60000},{"trusted_target_ack_required",true},{"acceptance","external exact oracle and contrasting input"},
+            {"isolation","none"},{"channels",{"stdin","stdout","stderr"}}}},
           {"operations",
-           {"launch",    "attach",     "instrument",   "sessions", "record", "replay",
+           {"io-run", "launch",    "attach",     "instrument",   "sessions", "record", "replay",
             "status",    "modules",    "threads",      "continue",
             "pause",     "step",       "breakpoint",   "remove-breakpoint",
             "registers", "memory",     "capture",      "resolve",
@@ -1028,6 +1031,96 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
   auto project = r.value("project", "");
   store.project_info(project);
   Db db(store);
+  if(op=="io-run") {
+    const std::set<std::string> allowed{"schema","operation","project","file","artifact","argv","input_hex",
+      "timeout_ms","max_output_bytes","trusted_target_ack","acceptance_oracle","cancel_file"};
+    for(auto it=r.begin();it!=r.end();++it)if(!allowed.contains(it.key()))throw std::runtime_error("Unsupported io-run field: "+it.key());
+    if(!r.value("trusted_target_ack",false))throw std::runtime_error("io-run requires trusted_target_ack; this is not a sandbox");
+    auto read_bounded=[](const fs::path &path,std::size_t bound) {
+      const auto size=fs::file_size(path);if(size>bound)throw std::runtime_error("I/O file exceeds bound");
+      std::ifstream in(path,std::ios::binary);std::string bytes(static_cast<std::size_t>(size),'\0');
+      if(!in.read(bytes.data(),bytes.size()))throw std::runtime_error("I/O file read failed");return bytes;
+    };
+    auto hex=[](const std::string &bytes) {std::string out;const char *digits="0123456789abcdef";
+      for(unsigned char c:bytes){out+=digits[c>>4];out+=digits[c&15];}return out;};
+    auto unhex=[](const std::string &s) {std::string out;
+      if(s.size()>32768||s.size()%2||s.find_first_not_of("0123456789abcdef")!=std::string::npos)throw std::runtime_error("Invalid bounded input hex");
+      for(std::size_t i=0;i<s.size();i+=2)out+=static_cast<char>(std::stoul(s.substr(i,2),nullptr,16));return out;};
+    const auto file=fs::canonical(r.at("file").get<std::string>());
+    const auto image=runtime_image(file);
+#ifdef _WIN32
+    if(image.at("format")!="PE")throw std::runtime_error("Use Linux indago for ELF io-run");
+#else
+    if(image.at("format")!="ELF")throw std::runtime_error("Use Windows indago for PE io-run");
+#endif
+    const auto binary=read_bounded(file,64*1024*1024),artifact=sha256_text(binary);
+    if(artifact!=r.at("artifact").get<std::string>())throw std::runtime_error("io-run artifact pin mismatch");
+    const auto input=unhex(r.at("input_hex").get<std::string>());
+    std::vector<std::string> args;
+    for(const auto &a:r.value("argv",J::array())) {auto arg=a.get<std::string>();
+      if(arg.find('\0')!=std::string::npos)throw std::runtime_error("NUL in io-run argument");args.push_back(arg);}
+    J oracle;std::string oracle_sha,negative;
+    if(r.contains("acceptance_oracle")) {
+      const auto oracle_path=fs::canonical(r.at("acceptance_oracle").get<std::string>());
+      const auto relative=oracle_path.lexically_relative(fs::canonical(store.root()));
+      if(!relative.empty()&&*relative.begin()!="..")throw std::runtime_error("Acceptance oracle must be outside the model workspace");
+      const auto raw=read_bounded(oracle_path,16384);oracle=J::parse(raw);oracle_sha=sha256_text(raw);
+      const std::set<std::string> fields{"schema","artifact_sha256","fact","stdout_hex","exit_code","negative_input_hex"};
+      for(auto it=oracle.begin();it!=oracle.end();++it)if(!fields.contains(it.key()))throw std::runtime_error("Unknown acceptance oracle field");
+      if(oracle.at("schema")!="indago.io-oracle.v1"||oracle.at("artifact_sha256")!=artifact||
+         !oracle.at("fact").is_string()||oracle.at("fact").get<std::string>().empty()||oracle.at("fact").get<std::string>().size()>1024||
+         !oracle.at("exit_code").is_number_integer())throw std::runtime_error("Invalid artifact-bound acceptance oracle");
+      (void)unhex(oracle.at("stdout_hex").get<std::string>());
+      negative=unhex(oracle.at("negative_input_hex").get<std::string>());
+      if(negative==input)throw std::runtime_error("Acceptance requires a distinct negative-control input");
+    }
+    const auto id=make_id("run");const auto directory=fs::absolute(store.root()/"runtime-artifacts"/id);
+    if(fs::space(store.root()).available<20ULL*1024*1024*1024+binary.size()*2+1024*1024)
+      throw std::runtime_error("io-run storage floor reached");
+    fs::create_directories(directory);
+    const auto staged=directory/file.filename();atomic_write(staged,binary);
+#ifndef _WIN32
+    fs::permissions(staged,fs::perms::owner_read|fs::perms::owner_exec);
+#endif
+    J s{{"schema","indago.runtime-session.v1"},{"id",id},{"project",project},{"state","running"},
+      {"backend","bounded-stdio"},{"created_at",utc_timestamp()},{"heartbeat_ms",now()},
+      {"artifact_sha256",artifact},{"request",r},{"isolation","none; explicitly trusted target only"}};
+    db.run("INSERT INTO runtime_sessions(id,project,record) VALUES(?,?,?)",{id,project,s.dump()});
+    try {
+      NativeProcessOptions options;options.wall_time_ms=r.value("timeout_ms",5000u)/(oracle.is_null()?1:2);
+      if(!options.wall_time_ms)throw std::runtime_error("Insufficient two-run timeout budget");
+      options.max_output_bytes=r.value("max_output_bytes",65536u);
+      if(r.contains("cancel_file"))options.cancel_file=fs::absolute(r.at("cancel_file").get<std::string>());
+      auto execute=[&](const std::string &bytes,const std::string &name) {
+        options.working_directory=directory/name;fs::create_directory(options.working_directory);
+        options.stdin_file=directory/(name+".stdin");atomic_write(options.stdin_file,bytes);
+        const auto result=run_native_process(staged,args,options);
+        J data{{"producer","indago/bounded-stdio-v1"},{"artifact_sha256",artifact},{"input_channel","stdin_file"},
+          {"input_hex",hex(bytes)},{"output_hex",hex(result.output)},{"stderr_hex",hex(result.error)},
+          {"exit_code",result.exit_code},{"timed_out",result.timed_out},{"cancelled",result.cancelled},{"truncated",result.truncated},
+          {"output_eof",result.output_complete},
+          {"complete",result.output_complete&&!result.timed_out&&!result.cancelled&&!result.truncated&&sha256_file(staged)==artifact&&sha256_file(options.stdin_file)==sha256_text(bytes)}};
+        try {(void)J(result.output).dump();data["output"]=result.output;}catch(const J::exception &){data["output_encoding"]="non-UTF8; use output_hex";}
+        return data;
+      };
+      auto data=execute(input,"candidate");
+      data["accepted"]=false;
+      if(!oracle.is_null()) {
+        const auto control=execute(negative,"negative");
+        const auto receipt=db.observe(id,"io_control",control,control.at("complete")==true?"observed":"partial");
+        auto matches=[&](const J &run){return run.at("complete")==true&&run.at("exit_code")==oracle.at("exit_code")&&run.at("output_hex")==oracle.at("stdout_hex");};
+        data["accepted"]=matches(data)&&control.at("complete")==true&&!matches(control);
+        data["acceptance_oracle_sha256"]=oracle_sha;data["acceptance_fact"]=oracle.at("fact");
+        data["negative_control"]={{"id",receipt.at("id")},{"sha256",receipt.at("sha256")},{"complete",control.at("complete")},{"matched_acceptance",matches(control)}};
+        data["acceptance_scope"]="operator-declared exact stdout/exit oracle with one contrasting input; not universal input causality or independent challenge grading";
+      }
+      const auto receipt=db.observe(id,"io_result",data,data.at("complete")==true?"observed":"partial");
+      s["state"]="completed";s["result_status"]=data.at("complete")==true?"completed":"partial";
+      s["status"]=s["result_status"];
+      s["io_result"]={{"id",receipt.at("id")},{"sha256",receipt.at("sha256")}};s["heartbeat_ms"]=now();db.save(s);
+      s["observation"]=receipt;return s;
+    } catch(const std::exception &e) {s["state"]="failed";s["diagnostic"]=e.what();db.save(s);throw;}
+  }
   if (op == "sessions") {
     J list = J::array();
     for (auto &row : db.run("SELECT record FROM runtime_sessions WHERE "
@@ -1164,7 +1257,7 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
   }
   if (op == "status") {
     s["worker_alive"] = live_worker(s);
-    if (!live_worker(s) && s["state"] != "detached" && s["state"] != "exited" &&
+    if (!live_worker(s) && s["state"] != "completed" && s["state"] != "detached" && s["state"] != "exited" &&
         s["state"] != "terminated" && s["state"] != "cancelled" &&
         s["state"] != "failed")
       s["state"] = "interrupted";

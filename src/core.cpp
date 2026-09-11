@@ -178,7 +178,8 @@ std::string make_id(std::string_view prefix) {
 }
 void atomic_write(const fs::path& destination, std::string_view content) {
     fs::create_directories(destination.parent_path());
-    const auto temp = destination.string() + ".tmp-" + make_id("write");
+    auto temp = destination;
+    temp += ".tmp-" + make_id("write");
     try {
         { std::ofstream out(temp, std::ios::binary); out.write(content.data(), static_cast<std::streamsize>(content.size())); out.flush(); if (!out) throw std::runtime_error("cannot write staging file"); }
         fs::rename(temp, destination);

@@ -210,11 +210,13 @@ NativeProcessResult run_native_process(const fs::path& executable,
     STARTUPINFOW startup{}; startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
     startup.hStdOutput = writer.h; startup.hStdError = err_writer.h;
-    Handle null_input; null_input.h = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING, 0, nullptr);
+    Handle null_input; null_input.h = CreateFileW(options.stdin_file.empty()?L"NUL":options.stdin_file.c_str(), GENERIC_READ,
+        FILE_SHARE_READ, &security, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if(null_input.h==INVALID_HANDLE_VALUE)throw std::runtime_error("Cannot open worker stdin");
     startup.hStdInput = null_input.h;
     PROCESS_INFORMATION info{};
     if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE,
-        CREATE_SUSPENDED | CREATE_NO_WINDOW, nullptr, nullptr, &startup, &info))
+        CREATE_SUSPENDED | CREATE_NO_WINDOW, nullptr, options.working_directory.empty()?nullptr:options.working_directory.c_str(), &startup, &info))
         throw std::runtime_error("Cannot start worker: " + std::to_string(GetLastError()));
     Handle process{info.hProcess}, thread{info.hThread};
     if (!AssignProcessToJobObject(job.h, process.h)) {
@@ -239,6 +241,8 @@ NativeProcessResult run_native_process(const fs::path& executable,
         if (result.cancelled || result.timed_out) { TerminateJobObject(job.h, 124); WaitForSingleObject(process.h, 5000); break; }
     }
     drain(reader.h, result.output); drain(err_reader.h, result.error);
+    auto eof=[](HANDLE pipe){DWORD available{};return !PeekNamedPipe(pipe,nullptr,0,nullptr,&available,nullptr)&&GetLastError()==ERROR_BROKEN_PIPE;};
+    result.output_complete=eof(reader.h)&&eof(err_reader.h);
     DWORD code{}; GetExitCodeProcess(process.h, &code); result.exit_code = static_cast<int>(code);
 #else
     int out[2], err[2];
@@ -250,6 +254,10 @@ NativeProcessResult run_native_process(const fs::path& executable,
         if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() != parent_pid) _exit(126);
 #endif
         setpgid(0, 0); dup2(out[1], STDOUT_FILENO); dup2(err[1], STDERR_FILENO);
+        const int input=open(options.stdin_file.empty()?"/dev/null":options.stdin_file.c_str(),O_RDONLY);
+        if(input<0||dup2(input,STDIN_FILENO)<0)_exit(126);
+        close(input);
+        if(!options.working_directory.empty()&&chdir(options.working_directory.c_str())!=0)_exit(126);
         close(out[0]); close(out[1]); close(err[0]); close(err[1]);
         std::string exe = executable.string();
         std::vector<char*> argv{exe.data()};
@@ -262,9 +270,10 @@ NativeProcessResult run_native_process(const fs::path& executable,
     auto drain = [&](int fd, std::string& target) {
         char buffer[8192];
         for (unsigned n = 0; n < 16; ++n) {
-            auto count = read(fd, buffer, sizeof(buffer)); if (count <= 0) break;
+            auto count = read(fd, buffer, sizeof(buffer)); if (count <= 0) return count==0;
             append_bounded(target, buffer, static_cast<std::size_t>(count), options.max_output_bytes, result.truncated);
         }
+        return false;
     };
     int status{};
     for (;;) {
@@ -275,7 +284,9 @@ NativeProcessResult run_native_process(const fs::path& executable,
         if (result.cancelled || result.timed_out) { kill(-pid, SIGKILL); waitpid(pid, &status, 0); break; }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    drain(out[0], result.output); drain(err[0], result.error); close(out[0]); close(err[0]);
+    const bool output_eof=drain(out[0], result.output),error_eof=drain(err[0], result.error);
+    result.output_complete=output_eof&&error_eof;
+    close(out[0]); close(err[0]);
     kill(-pid, SIGKILL);
     result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 #endif

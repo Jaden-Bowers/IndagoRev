@@ -7,6 +7,7 @@
 #include "indago/harness.hpp"
 #include "indago/lief.hpp"
 #include "indago/wireshark.hpp"
+#include "benchmark.hpp"
 #include <charconv>
 #include <fstream>
 #include <iostream>
@@ -77,8 +78,10 @@ Json make_request(const Args& args) {
 }
 void usage() {
     std::cout << "IndagoRev native static and dynamic workbench\n"
+      "  indago benchmark freeze|prepare|grade|score --request FILE (operator-side, not harness tools)\n"
       "  indago runtime capabilities|payloads\n"
       "  indago runtime launch --project NAME --file FILE [--request runtime.json]\n"
+      "  indago runtime io-run --request trusted-io-run.json\n"
       "  indago runtime attach --project NAME --pid PID\n"
       "  indago runtime record --project NAME --file ELF [--timeout-ms 10000 --trace-bytes 67108864]\n"
       "  indago runtime replay --project NAME --session RECORDING_RUN\n"
@@ -152,6 +155,10 @@ int main(int argc,char** argv) {
         Json response;int code=0;
         if(cmd=="version") response={{"schema","indago.version.v2"},{"version",INDAGO_VERSION},{"implementation","C++20"},{"primary_executable","indago"},{"integrated_components",{"AIRECE","XAIR","XAIR_CFG","XAIR_SYM","Z3"}},{"external_workers",INDAGO_HAS_GHIDRA?Json::array():Json::array({"Ghidra/JDK"})},{"ghidra_bundled",INDAGO_HAS_GHIDRA!=0},{"ilspy_bundled",INDAGO_HAS_ILSPY!=0},{"enrichment_bundled",INDAGO_HAS_ENRICHMENT!=0}};
         else if(cmd=="capabilities") {response=service.capabilities();response["runtime"]=indago::runtime_capabilities();response["harness"]=indago::harness_capabilities();}
+        else if(cmd=="benchmark") {
+            const auto r=read_json(args.get("request"));
+            response=sub=="certify"?indago::harness_certify(service,r):indago::benchmark::action(sub,r);
+        }
         else if(cmd=="harness") {
             Json r=args.get("request").empty()?Json::object():read_json(args.get("request"));
             for(const auto* key:{"project","id"})if(!args.get(key).empty()){if(r.contains(key)&&r[key]!=args.get(key))throw std::runtime_error("conflicting harness request/CLI field");r[key]=args.get(key);}

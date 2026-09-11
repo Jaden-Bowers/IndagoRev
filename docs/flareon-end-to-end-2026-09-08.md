@@ -1,5 +1,13 @@
 # FLARE-On end-to-end harness demonstration — 2026-09-08
 
+> Historical result: the original `verified_static_output` label documented
+> below predates the typed solve gate. The preserved evidence has since been
+> replayed through the stricter verifier and now supports exactly a
+> `verified_transformation` claim. See `docs/solve-verification.md` and
+> `out/live-local-harness-sDdO2c/proof.json` for the fresh two-generation Qwen
+> validation. It is not an observed-output,
+> accepted-input, or independently graded proof.
+
 This iteration closes the first end-to-end FLARE-On milestone for the native
 built-in harness. It does not close the full archive or general autonomous-RE
 goals in `kb/IndagoRev_Final_Development_Plan.md`.
@@ -18,7 +26,8 @@ a compact extract at `out/flareon-solve-success/proof.json`. The run completed i
 
 - status: `answered`
 - answer: `BrokenByte`
-- reasoning state: `verified_solve: true`
+- historical reasoning state: `verified_solve: true` (superseded by the typed
+  result linked above)
 - decoder stages: 5
 - target execution: disabled
 
@@ -61,8 +70,9 @@ validator compared the selection to the recovered argument and published
   field is reloaded and verified from immutable evidence before recovery.
 - Post-recovery context is reduced to the recovery record, reasoning revision,
   and required next action so it fits the conservative local-model byte ceiling.
-- The live driver has a `solve` mode that requires `answered`, the recovered
-  answer, at least one decoder stage, and `verified_solve: true`.
+- The live driver's current `solve` mode requires `answered`, the recovered
+  answer, at least one decoder stage, `requirements_verified: true`, and
+  `verified_solve: false` for this static-only proof.
 
 ## Verification
 

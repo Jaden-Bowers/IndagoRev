@@ -1,9 +1,12 @@
 #include "../src/workbench_db.hpp"
 #include "../src/workbench_publication.hpp"
 #include "indago/harness.hpp"
+#include "indago/airece.hpp"
 #include "indago/workbench.hpp"
 #include "evidence_page_checks.hpp"
 #include "claim_validation_checks.hpp"
+#include "proof_publication_checks.hpp"
+#include "runtime_proof_checks.hpp"
 #include <iostream>
 #include <sqlite3.h>
 
@@ -27,6 +30,15 @@ int main() {
   try {
     evidence_page_checks(root / "evidence-pages");
     claim_validation_checks(root / "claim-checks");
+    proof_publication_checks(root / "proof-publication");
+    if(const auto worker=find_native_worker()) {
+#ifdef _WIN32
+      const auto fixture=worker->parent_path()/"indago_io_fixture.exe";
+#else
+      const auto fixture=worker->parent_path()/"indago_io_fixture";
+#endif
+      if(fs::is_regular_file(fixture))runtime_proof_checks(root/"runtime-proofs",fixture);
+    }
     StaticService svc(root);
     auto &store = svc.store();
     store.create_project("demo");

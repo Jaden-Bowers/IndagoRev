@@ -1,5 +1,6 @@
 #pragma once
 #include "harness_validation.hpp"
+#include "harness_verification.hpp"
 
 namespace indago {
 inline std::uint64_t model_function_budget(const wb::J &inv,unsigned count=4) {
@@ -64,17 +65,10 @@ inline wb::J model_ledger_report(const wb::J &inv,const wb::J &ledger,
           {"gaps",inv.at("required_facts")}};
 }
 inline wb::J model_solution_report(const wb::J &inv) {
-  const auto &reasoning=inv.at("reasoning");
-  if(!reasoning.value("verified_solve",false)||reasoning.at("solutions").empty())
-    throw std::runtime_error("No deterministically verified solution is available");
-  const auto &solution=reasoning.at("solutions").back();
-  wb::J refs=wb::J::array();
-  for(const auto &source:solution.at("sources"))
-    if(std::find(refs.begin(),refs.end(),source.at("evidence_id"))==refs.end())refs.push_back(source.at("evidence_id"));
-  wb::J claims=wb::J::array();
-  for(const auto &fact:inv.at("required_facts"))claims.push_back({
-    {"fact",fact},{"text","The selected answer exactly matches the final printable stack argument recovered by the bounded native x86 decoder chain."},
-    {"evidence_ids",refs},{"limitations",wb::J::array({"Static proof covers the recorded initializer bytes, recognized XOR decoder stages, and final call argument; the target was not executed."})}});
-  return {{"status","answered"},{"answer",solution.at("answer")},{"claims",claims},{"gaps",wb::J::array()}};
+  auto report=requirement_report(inv);
+  // The public finish request accepts only these fields; native proof metadata
+  // is assembled again at publication, not trusted from model JSON.
+  return {{"status",report.at("status")},{"answer",report.at("answer")},
+    {"claims",report.at("claims")},{"gaps",report.at("gaps")}};
 }
 }

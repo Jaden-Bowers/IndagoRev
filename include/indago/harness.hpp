@@ -7,6 +7,8 @@ namespace indago {
 nlohmann::json harness_action(StaticService &, std::string_view operation,
                               const nlohmann::json &request);
 nlohmann::json harness_capabilities();
+// Operator-only bridge: re-runs an independent benchmark verifier. Never a model tool.
+nlohmann::json harness_certify(StaticService &, const nlohmann::json &request);
 // Internal child-process dispatch; requires the existing action runner lease.
 nlohmann::json harness_workbench_worker(StaticService &,
                                         const std::string &project,

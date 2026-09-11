@@ -2,6 +2,8 @@
 #include "harness_scope.hpp"
 #include "harness_validation.hpp"
 #include "harness_reasoning.hpp"
+#include "harness_verification.hpp"
+#include "benchmark.hpp"
 #include "harness_workbench.hpp"
 #include "indago/airece.hpp"
 #include "model_controller.hpp"
@@ -132,6 +134,49 @@ AND json_extract(newer.record,'$.backend_program_revision')>json_extract(old.rec
           {"raw_sha256",q.text(3)},
           {"artifact_sha256", ev["artifact_sha256"]},
           {"producer", ev["producer"]}};
+}
+// Recheck immutable bytes as well as index freshness at the publication boundary.
+// A record digest detects changes; it is not an authentication signature.
+void publication_proof(ProjectStore &store,Db &db,const J &inv,const J &proof) {
+  if(!verification_record_intact(proof))throw std::runtime_error("Proof record changed");
+  const auto kind=proof.at("kind").get<std::string>();
+  if(kind=="verified_transformation"&&proof.value("checker_version",0)!=2)
+    throw std::runtime_error("Legacy transformation proof requires revalidation");
+  for(const auto &pin:proof.value("sources",J::array())) {
+    const auto current=citation(db,inv,pin.at("evidence_id").get<std::string>());
+    if(!current.at("current").get<bool>()||current.at("revision")!=pin.at("revision")||
+       current.at("raw_sha256")!=pin.at("raw_sha256")||current.at("status")!=pin.at("native_status"))
+      throw std::runtime_error("Proof source is stale or its pinned metadata changed");
+    const auto sha=pin.at("raw_sha256").get<std::string>();
+    const auto bytes=read(object(store,sha),16*1024*1024);
+    if(sha256_text(bytes)!=sha)throw std::runtime_error("Proof source bytes changed");
+    // A partial envelope may support an exact, present field, never a missing field.
+    (void)J::parse(bytes).at(J::json_pointer(pin.at("pointer").get<std::string>()));
+  }
+  if(kind=="observed_output"||kind=="accepted_input") {
+    const auto &pin=proof.at("runtime_observation");
+    const auto session=runtime_command(store,{},{{"operation","status"},{"project",inv.at("project")},{"session",pin.at("session")}});
+    if(session.at("artifact_sha256")!=inv.at("artifact_sha256"))throw std::runtime_error("Runtime proof artifact changed");
+    const auto rows=runtime_command(store,{},{{"operation","observations"},{"project",inv.at("project")},
+      {"session",pin.at("session")},{"id",pin.at("observation")},{"limit",1}}).at("observations");
+    if(rows.size()!=1||rows[0].at("sha256")!=pin.at("sha256")||rows[0].at("kind")!="io_result"||
+       !rows[0].at("data").value("complete",false))throw std::runtime_error("Runtime proof receipt is missing, changed, or incomplete");
+    const auto &data=rows[0].at("data");
+    if(data.value("producer",std::string())!="indago/bounded-stdio-v1"||data.at("artifact_sha256")!=inv.at("artifact_sha256"))
+      throw std::runtime_error("Runtime proof producer or artifact mismatch");
+    if(kind=="observed_output"&&data.at("output")!=proof.at("answer"))throw std::runtime_error("Runtime output proof answer changed");
+    if(kind=="accepted_input") {
+      const auto answer=proof.at("answer").get<std::string>();
+      if(data.at("accepted")!=true||data.at("acceptance_fact")!=proof.at("question")||
+         data.at("input_hex")!=reasoning_hex(std::vector<unsigned char>(answer.begin(),answer.end())))
+        throw std::runtime_error("Runtime acceptance binding changed");
+      const auto &control=data.at("negative_control");
+      const auto controls=runtime_command(store,{},{{"operation","observations"},{"project",inv.at("project")},
+        {"session",pin.at("session")},{"id",control.at("id")},{"limit",1}}).at("observations");
+      if(controls.size()!=1||controls[0].at("sha256")!=control.at("sha256")||controls[0].at("kind")!="io_control"||
+         !controls[0].at("data").value("complete",false))throw std::runtime_error("Runtime negative control is missing or changed");
+    }
+  }
 }
 J run_action(StaticService &service, const J &request) {
   const auto &store = service.store();
@@ -479,6 +524,14 @@ J harness_capabilities() {
       {"network", true},
       {"target_network", false},
       {"controller_network_policy", "explicit pinned model endpoint only"},
+      {"solution_proofs",
+       {{"question_bound", true},
+        {"exact_kind_matching", true},
+        {"verified_solve_requires_independent_grade", true},
+        {"kinds", solution_proof_kinds()},
+        {"static_decoder_engine", "XAIR/xair_x86_decode_instruction plus XAIR_CFG and Ghidra evidence"},
+        {"runtime_source", "hash-pinned observations from explicitly granted sessions"},
+        {"independent_grader", "operator-side benchmark certify command"}}},
       {"missing_capabilities",
        {"live provider/model qualification",
         "tokenizer-specific context qualification",
@@ -511,7 +564,8 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
   if (operation == "create") {
     keys(r, {"project", "target_id", "objective", "required_facts",
              "stop_conditions", "owner", "budget", "scope",
-             "workbench_mutations", "derived_artifacts", "system_manifest", "runtime_observation_sessions"});
+             "workbench_mutations", "derived_artifacts", "system_manifest", "runtime_observation_sessions",
+             "proof_requirements"});
     auto owner = r.at("owner");
     keys(owner, {"mode", "name", "model_declaration", "profile"});
     if (owner.at("mode") == "builtin")
@@ -530,6 +584,18 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
     for (const auto &f : facts)
       if (!unique.insert(f.get<std::string>()).second)
         throw std::runtime_error("duplicate required fact");
+    J proof_requirements=J::array(),questions=J::array();
+    if(r.contains("proof_requirements")) {
+      proof_requirements=r.at("proof_requirements");texts(proof_requirements);
+      if(proof_requirements.size()!=facts.size())
+        throw std::runtime_error("proof_requirements must bind one proof type to every required fact");
+      for(const auto &kind:proof_requirements)
+        if(!solution_proof_kinds().contains(kind.get<std::string>()))
+          throw std::runtime_error("unsupported solution proof type");
+    }
+    for(std::size_t i=0;i<facts.size();++i)
+      questions.push_back({{"id","q"+std::to_string(i)},{"fact_index",i},{"text",facts[i]},
+        {"proof_obligation",r.contains("proof_requirements")?proof_requirements[i]:J("evidence_backed_claim")}});
     auto stops = r.value("stop_conditions", J::array());
     texts(stops);
     J manifest_binding = nullptr, manifest_targets = J::array();
@@ -617,6 +683,7 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
              {"derived_components", J::array()},
              {"objective", objective},
              {"required_facts", facts},
+             {"questions", questions},
              {"stop_conditions", stops},
              {"owner", owner},
              {"revision", 1},
@@ -646,6 +713,7 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
                {"model_calls", owner.at("mode") == "builtin"}}},
              {"local_only_compliance",
               "not certified; external owner declaration only"}};
+    if(r.contains("proof_requirements"))record["proof_requirements"]=proof_requirements;
     auto observation_sessions=r.value("runtime_observation_sessions",J::array());
     if(!observation_sessions.is_array()||observation_sessions.size()>8)throw std::runtime_error("At most eight runtime observation sessions may be granted");
     for(const auto &session_id:observation_sessions) {
@@ -703,24 +771,44 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
     J result{{"schema","indago.report-audit.v1"},{"investigation_id",id},
         {"investigation_revision",inv.at("revision")},{"checked_at",utc_timestamp()},
         {"report_modified",false},{"source_bytes_verified",false},
-        {"semantic_entailment_checked",false},{"verified_solve",false},
-        {"scope","Current citation metadata only; not proof that report claims follow from evidence"}};
+        {"semantic_entailment_checked",false},{"requirements_verified",false},{"verified_solve",false},
+        {"scope","Current citation metadata, hash-pinned typed-proof bindings and source bytes; native semantic checks are not rerun"}};
     if (!inv.contains("report")) {
       result["status"]="not_reported";return result;
     }
     const auto &report=inv.at("report");
+    J typed_proofs=J::array();
+    if(inv.contains("proof_requirements"))typed_proofs=verified_requirements(inv);
     std::size_t checked=0, issues=0;
     J details=J::array();
+    for(const auto &proof:typed_proofs) {
+      try {publication_proof(service.store(),db,inv,proof);}
+      catch(const std::exception &e) {
+        if(issues>=offset&&details.size()<limit)details.push_back({{"proof_id",proof.at("id")},{"reasons",J::array({e.what()})}});
+        ++issues;
+      }
+    }
+    result["source_bytes_verified"]=!typed_proofs.empty()&&issues==0;
     for (std::size_t index=0;index<report.at("claims").size();++index) {
-      for (const auto &pin : report.at("claims")[index].at("citations")) {
+      const auto &claim=report.at("claims")[index];
+      for (const auto &pin : claim.value("citations",J::array())) {
         ++checked;J reasons=J::array();
         try {
           auto current=citation(db,inv,pin.at("id").get<std::string>());
+          bool typed_source=false;
+          for(const auto &proof:typed_proofs)
+            if(claim.value("proof_id",std::string())==proof.value("id",std::string())&&
+               claim.value("proof_sha256",std::string())==proof.value("record_sha256",std::string())&&
+               claim.value("proof_kind",std::string())==proof.value("kind",std::string()))
+              for(const auto &source:proof.value("sources",J::array()))
+                if(source.value("evidence_id",std::string())==pin.value("id",std::string())&&
+                   source.value("raw_sha256",std::string())==pin.value("raw_sha256",std::string())&&
+                   source.value("revision",std::string())==pin.value("revision",std::string()))typed_source=true;
           if (current.at("revision")!=pin.at("revision")) reasons.push_back("citation revision differs from saved report");
           if (pin.contains("raw_sha256") && current.at("raw_sha256")!=pin.at("raw_sha256")) reasons.push_back("citation source hash differs from saved report");
           if (current.at("current")!=true) reasons.push_back(current.at("ghidra_program_advanced")==true?
               "Ghidra Program revision advanced; requery affected view":"analysis superseded or not current");
-          if (current.at("status")!="completed") reasons.push_back("source analysis is incomplete");
+          if (current.at("status")!="completed"&&!typed_source) reasons.push_back("source analysis is incomplete");
         } catch (const std::exception &e) {reasons.push_back(std::string(e.what()).substr(0,256));}
         if (!reasons.empty()) {
           if (issues>=offset && details.size()<limit)
@@ -732,9 +820,12 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
     result["status"]=issues?"needs_review":"citations_current";
     result["report_sha256"]=sha256_text(report.dump());
     result["citations_checked"]=checked;
+    result["typed_proofs_checked"]=typed_proofs.size();
     result["issues_total"]=issues;
     result["issues"]=details;
     result["next_offset"]=offset+details.size()<issues?J(offset+details.size()):J(nullptr);
+    result["requirements_verified"]=report.value("requirements_verified",false);
+    result["verified_solve"]=report.value("verified_solve",false);
     return result;
   }
   if (operation == "scope") {
@@ -1063,8 +1154,24 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
     if (unsettled(db, p, id))
       throw std::runtime_error("settle actions before final report");
     auto status = text_field(r, "status", 64);
-    if(status=="answered"&&inv.contains("reasoning")&&!inv.at("reasoning").value("verified_solve",false))
-      throw std::runtime_error("Acceptance obligations remain unproven; finite checks and candidate representations require a partial report");
+    if(status=="answered"&&inv.contains("proof_requirements")) {
+      auto verified=requirement_report(inv);
+      service.store().target(p,inv.at("target_id").get<std::string>(),true);
+      for(const auto &proof:verified_requirements(inv))publication_proof(service.store(),db,inv,proof);
+      if(r.at("answer")!=verified.at("answer")||r.at("claims")!=verified.at("claims")||r.at("gaps")!=verified.at("gaps"))
+        throw std::runtime_error("Answered report must exactly match the native requirement-bound verifier report");
+      for(auto &claim:verified["claims"]) {
+        claim["citations"]=J::array();
+        for(const auto &ref:claim.value("evidence_ids",J::array()))claim["citations"].push_back(citation(db,inv,ref));
+      }
+      verified["validation"]="Exact per-question proof-kind matching over intact native proof records";
+      verified["reproducibility"]={{"artifact_sha256",inv.at("artifact_sha256")},{"target_id",inv.at("target_id")},
+        {"components",harness_components(inv)},{"version",INDAGO_VERSION}};
+      inv["status"]="answered";inv["report"]=verified;
+      inv["reasoning"]["requirements_verified"]=true;
+      inv["reasoning"]["verified_solve"]=verified.at("verified_solve");
+      save_investigation(db,inv,"harness.finished");tx.commit();return inv;
+    }
     if (!terminal(status) || status == "cancelled")
       throw std::runtime_error("invalid terminal status");
     auto answer = text_field(r, "answer", 16384);
@@ -1089,17 +1196,9 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
       claim["citations"] = J::array();
       for (const auto &ref : refs) {
         auto c = citation(db, inv, ref);
-        bool exact_recovery_source=false;
-        if(status=="answered"&&inv.value("reasoning",J::object()).value("verified_solve",false))
-          for(const auto &solution:inv.at("reasoning").value("solutions",J::array()))
-            if(solution.value("state",std::string())=="verified_static_output")
-              for(const auto &source:solution.value("sources",J::array()))
-                if(source.value("evidence_id",std::string())==ref.get<std::string>()&&source.value("raw_sha256",std::string())==c.value("raw_sha256",std::string())&&
-                   source.value("revision",std::string())==c.value("revision",std::string()))exact_recovery_source=true;
         if (status == "answered" &&
-            (c["current"] != true || (c["status"] != "completed"&&!exact_recovery_source)))
-          throw std::runtime_error("answered report requires current complete "
-                                   "evidence or an exact hash-pinned verified recovery source; use partial");
+            (c["current"] != true || c["status"] != "completed"))
+          throw std::runtime_error("answered report requires current complete evidence; use partial");
         claim["citations"].push_back(c);
       }
       if(claim.contains("checks")) {
@@ -1119,7 +1218,8 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
         {"answer", answer},
         {"claims", claims},
         {"gaps", gaps},
-          {"verified_solve", status=="answered"&&inv.value("reasoning",J::object()).value("verified_solve",false)},
+          {"requirements_verified",false},
+          {"verified_solve",false},
         {"validation", status=="answered"&&inv.value("reasoning",J::object()).value("verified_solve",false)?
           "deterministic reasoning validator plus current scoped citations":"citation scope/completeness and optional explicit snapshot checks; prose entailment not proven"},
         {"reproducibility",
@@ -1138,6 +1238,50 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
     return inv;
   }
   throw std::runtime_error("unknown harness operation");
+}
+J harness_certify(StaticService &service,const J &r) {
+  // No caller-supplied receipt is trusted. The evaluator is deliberately outside
+  // both the analysis directory and the harness's model-visible object store.
+  benchmark::disjoint(r.at("evaluator_root").get<std::string>(),service.store().root());
+  const auto grade=benchmark::grade(r);
+  if(!grade.at("verified_solve").get<bool>())throw std::runtime_error("Independent verifier rejected the submitted answer");
+  const auto oracle=benchmark::load(benchmark::checked_path(r.at("evaluator_root").get<std::string>(),r.at("verifier")));
+  const auto submission=benchmark::load(benchmark::checked_path(r.at("analysis_root").get<std::string>(),r.at("submission")));
+  if(sha256_text(oracle.dump())!=grade.at("verifier_sha256").get<std::string>()||
+     sha256_text(submission.dump())!=grade.at("submission_sha256").get<std::string>())throw std::runtime_error("Verification inputs changed");
+  Db db(service.store().root()/"indago-native.sqlite3");Tx tx(db);
+  const auto p=text_field(r,"project"),id=text_field(r,"id");auto inv=load_investigation(db,p,id);
+  ownership(db,r,inv);revision(r,inv);
+  if(running(db,p,id)||unsettled(db,p,id)||terminal(inv.at("status")))throw std::runtime_error("Certification requires a settled active investigation");
+  const auto index=r.at("fact_index").get<std::size_t>();
+  if(index>=inv.at("required_facts").size()||oracle.at("requirement_kind")!="challenge_answer"||
+     oracle.at("fact")!=inv.at("required_facts")[index]||oracle.at("artifact_sha256")!=inv.at("artifact_sha256"))
+    throw std::runtime_error("Independent verifier does not cover this artifact and requested fact");
+  if(required_proof_kind(inv,index)!="independently_graded_challenge_solve")
+    throw std::runtime_error("Investigation question does not request independent challenge grading");
+  service.store().target(p,inv.at("target_id").get<std::string>(),true);
+  J record={{"schema","indago.solution-proof.v1"},{"kind","independently_graded_challenge_solve"},{"id",make_id("vf")},
+    {"project",p},{"investigation",id},{"artifact_sha256",inv.at("artifact_sha256")},{"fact_index",index},
+    {"question",inv.at("required_facts")[index]},{"obligation","o"+std::to_string(index)+"_challenge_solve"},
+    {"answer",submission.at("answer")},{"grade",grade},{"state","verified"},
+    {"limitations",J::array({"Independent fixed-answer grading establishes the challenge answer only; it does not establish decoder behavior, observed output, or accepted-input control flow."})}};
+  record["record_sha256"]=sha256_text(record.dump());
+  if(!inv.contains("verifications"))inv["verifications"]=J::array();
+  if(inv.at("verifications").size()>=16)throw std::runtime_error("Verification record limit");
+  inv["verifications"].push_back(record);
+  if(!inv.contains("reasoning")||!inv.at("reasoning").is_object())inv["reasoning"]=reasoning_initial(inv);
+  for(auto &obligation:inv["reasoning"]["obligations"])
+    if(obligation.at("fact_index")==index&&obligation.at("role")=="challenge_solve")obligation["state"]="resolved_by_independent_grade";
+  const auto matched=verified_requirements(inv);
+  inv["reasoning"]["requirements_verified"]=matched.size()==inv.at("required_facts").size();
+  inv["reasoning"]["verified_solve"]=inv["reasoning"].at("requirements_verified").get<bool>()&&
+    std::any_of(matched.begin(),matched.end(),[](const J &proof){
+      return proof.at("kind")=="independently_graded_challenge_solve";
+    });
+  // Existing input/reachability/output obligations remain unresolved: exact flag
+  // grading is not a proof of those behaviors.
+  event(db,p,id,"harness.requirement_verified",record);
+  save_investigation(db,inv,"harness.verification_recorded");tx.commit();return inv;
 }
 J harness_action(StaticService &service, std::string_view operation,
                  const J &r) {

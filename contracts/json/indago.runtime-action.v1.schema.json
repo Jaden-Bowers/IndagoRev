@@ -6,7 +6,12 @@
   "additionalProperties": false,
   "properties": {
     "schema": {"const": "indago.runtime-action.v1"},
-    "operation": {"enum": ["capabilities", "payloads", "launch", "attach", "instrument", "record", "replay", "sessions", "status", "request", "modules", "threads", "continue", "pause", "step", "step-over", "step-out", "stack", "crash", "watchpoint", "breakpoints", "processes", "select-process", "validate-witness", "breakpoint", "remove-breakpoint", "registers", "memory", "capture", "resolve", "trace", "cancel", "observations", "network", "symbolic", "detach", "terminate", "reanalyze", "feedback", "lineage", "recipes", "identities"]},
+    "operation": {"enum": ["io-run", "capabilities", "payloads", "launch", "attach", "instrument", "record", "replay", "sessions", "status", "request", "modules", "threads", "continue", "pause", "step", "step-over", "step-out", "stack", "crash", "watchpoint", "breakpoints", "processes", "select-process", "validate-witness", "breakpoint", "remove-breakpoint", "registers", "memory", "capture", "resolve", "trace", "cancel", "observations", "network", "symbolic", "detach", "terminate", "reanalyze", "feedback", "lineage", "recipes", "identities"]},
+    "trusted_target_ack": {"const": true},
+    "input_hex": {"type": "string", "maxLength": 32768, "pattern": "^([a-f0-9]{2})*$"},
+    "acceptance_oracle": {"type": "string", "minLength": 1, "maxLength": 32768},
+    "cancel_file": {"type": "string", "minLength": 1, "maxLength": 32768},
+    "max_output_bytes": {"type": "integer", "minimum": 1, "maximum": 65536},
     "terminal_index": {"type": "integer", "minimum": 0, "maximum": 31},
     "branch_index": {"type": "integer", "minimum": 0, "maximum": 1},
     "follow_children": {"type": "boolean"},

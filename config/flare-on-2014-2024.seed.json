@@ -1,0 +1,1336 @@
+{
+  "schema": "indago.benchmark-seed.v1",
+  "id": "flare-on-2014-2024-active116-v1",
+  "scope": {
+    "first_year": 2014,
+    "last_year": 2024,
+    "held_out_years": [
+      2025
+    ]
+  },
+  "source": "https://flare-on.com/",
+  "provenance": "Local release mirror; container identity is not yet authenticated against every official download. No write-ups read. Missing payloads remain in denominator.",
+  "redistribution": "Local analysis only; challenge binaries not committed or redistributed by this manifest.",
+  "challenges": [
+    {
+      "id": "flare-2014-01",
+      "year": 2014,
+      "title": "C1",
+      "inputs": [
+        {
+          "path": "2014/C1.zip",
+          "password": "malware"
+        }
+      ]
+    },
+    {
+      "id": "flare-2014-02",
+      "year": 2014,
+      "title": "C2",
+      "inputs": [
+        {
+          "path": "2014/C2.zip",
+          "password": "malware"
+        }
+      ]
+    },
+    {
+      "id": "flare-2014-03",
+      "year": 2014,
+      "title": "C3",
+      "inputs": [
+        {
+          "path": "2014/C3.zip",
+          "password": "malware"
+        }
+      ]
+    },
+    {
+      "id": "flare-2014-04",
+      "year": 2014,
+      "title": "C4",
+      "inputs": [
+        {
+          "path": "2014/C4.zip",
+          "password": "malware"
+        }
+      ]
+    },
+    {
+      "id": "flare-2014-05",
+      "year": 2014,
+      "title": "C5",
+      "inputs": [
+        {
+          "path": "2014/C5.zip",
+          "password": "malware"
+        }
+      ]
+    },
+    {
+      "id": "flare-2014-06",
+      "year": 2014,
+      "title": "C6",
+      "inputs": [
+        {
+          "path": "2014/C6.zip",
+          "password": "malware"
+        }
+      ]
+    },
+    {
+      "id": "flare-2014-07",
+      "year": 2014,
+      "title": "C7",
+      "inputs": [
+        {
+          "path": "2014/C7.zip",
+          "password": "malware"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-01",
+      "year": 2015,
+      "title": "Challenge 1",
+      "inputs": [
+        {
+          "path": "2015/Challenge 1.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-02",
+      "year": 2015,
+      "title": "Challenge 2",
+      "inputs": [
+        {
+          "path": "2015/Challenge 2.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-03",
+      "year": 2015,
+      "title": "Challenge 3",
+      "inputs": [
+        {
+          "path": "2015/Challenge 3.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-04",
+      "year": 2015,
+      "title": "Challenge 4",
+      "inputs": [
+        {
+          "path": "2015/Challenge 4.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-05",
+      "year": 2015,
+      "title": "Challenge 5",
+      "inputs": [
+        {
+          "path": "2015/Challenge 5.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-06",
+      "year": 2015,
+      "title": "Challenge 6",
+      "inputs": [
+        {
+          "path": "2015/Challenge 6.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-07",
+      "year": 2015,
+      "title": "Challenge 7",
+      "inputs": [
+        {
+          "path": "2015/Challenge 7.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-08",
+      "year": 2015,
+      "title": "Challenge 8",
+      "inputs": [
+        {
+          "path": "2015/Challenge 8.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-09",
+      "year": 2015,
+      "title": "Challenge 9",
+      "inputs": [
+        {
+          "path": "2015/Challenge 9.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-10",
+      "year": 2015,
+      "title": "Challenge 10",
+      "inputs": [
+        {
+          "path": "2015/Challenge 10.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2015-11",
+      "year": 2015,
+      "title": "Challenge 11",
+      "inputs": [
+        {
+          "path": "2015/Challenge 11.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-01",
+      "year": 2016,
+      "title": "1",
+      "inputs": [
+        {
+          "path": "2016/1.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-02",
+      "year": 2016,
+      "title": "2",
+      "inputs": [
+        {
+          "path": "2016/2.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-03",
+      "year": 2016,
+      "title": "3",
+      "inputs": [
+        {
+          "path": "2016/3.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-04",
+      "year": 2016,
+      "title": "4",
+      "inputs": [
+        {
+          "path": "2016/4.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-05",
+      "year": 2016,
+      "title": "5",
+      "inputs": [
+        {
+          "path": "2016/5.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-06",
+      "year": 2016,
+      "title": "6",
+      "inputs": [
+        {
+          "path": "2016/6.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-07",
+      "year": 2016,
+      "title": "7",
+      "inputs": [
+        {
+          "path": "2016/7.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-08",
+      "year": 2016,
+      "title": "8",
+      "inputs": [
+        {
+          "path": "2016/8.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-09",
+      "year": 2016,
+      "title": "9",
+      "inputs": [
+        {
+          "path": "2016/9.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2016-10",
+      "year": 2016,
+      "title": "10",
+      "inputs": [
+        {
+          "path": "2016/10.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-01",
+      "year": 2017,
+      "title": "01",
+      "inputs": [
+        {
+          "path": "2017/01.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-02",
+      "year": 2017,
+      "title": "02",
+      "inputs": [
+        {
+          "path": "2017/02.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-03",
+      "year": 2017,
+      "title": "03",
+      "inputs": [
+        {
+          "path": "2017/03.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-04",
+      "year": 2017,
+      "title": "04",
+      "inputs": [
+        {
+          "path": "2017/04.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-05",
+      "year": 2017,
+      "title": "05",
+      "inputs": [
+        {
+          "path": "2017/05.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-06",
+      "year": 2017,
+      "title": "06",
+      "inputs": [
+        {
+          "path": "2017/06.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-07",
+      "year": 2017,
+      "title": "07",
+      "inputs": [
+        {
+          "path": "2017/07.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-08",
+      "year": 2017,
+      "title": "08",
+      "inputs": [
+        {
+          "path": "2017/08.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-09",
+      "year": 2017,
+      "title": "09",
+      "inputs": [
+        {
+          "path": "2017/09.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-10",
+      "year": 2017,
+      "title": "10",
+      "inputs": [
+        {
+          "path": "2017/10.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-11",
+      "year": 2017,
+      "title": "11",
+      "inputs": [
+        {
+          "path": "2017/11.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2017-12",
+      "year": 2017,
+      "title": "12",
+      "inputs": [
+        {
+          "path": "2017/12.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-01",
+      "year": 2018,
+      "title": "01_MinesweeperChampionshipRegistration",
+      "inputs": [
+        {
+          "path": "2018/01_MinesweeperChampionshipRegistration.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-02",
+      "year": 2018,
+      "title": "02_UltimateMinesweeper",
+      "inputs": [
+        {
+          "path": "2018/02_UltimateMinesweeper.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-03",
+      "year": 2018,
+      "title": "03_FLEGGO",
+      "inputs": [
+        {
+          "path": "2018/03_FLEGGO.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-04",
+      "year": 2018,
+      "title": "04_binstall",
+      "inputs": [
+        {
+          "path": "2018/04_binstall.7z",
+          "password": "infected"
+        },
+        {
+          "path": "2018/04_additional_files_flare-on.com-SiteMirror.zip",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-05",
+      "year": 2018,
+      "title": "05_web2point0",
+      "inputs": [
+        {
+          "path": "2018/05_web2point0.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-06",
+      "year": 2018,
+      "title": "06_magic",
+      "inputs": [
+        {
+          "path": "2018/06_magic.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-07",
+      "year": 2018,
+      "title": "07_WorldOfWarcraft",
+      "inputs": [
+        {
+          "path": "2018/07_WorldOfWarcraft.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-08",
+      "year": 2018,
+      "title": "08_doogie",
+      "inputs": [
+        {
+          "path": "2018/08_doogie.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-09",
+      "year": 2018,
+      "title": "09_leet_editr",
+      "inputs": [
+        {
+          "path": "2018/09_leet_editr.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-10",
+      "year": 2018,
+      "title": "10_golf",
+      "inputs": [
+        {
+          "path": "2018/10_golf.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-11",
+      "year": 2018,
+      "title": "11_malware_skillz",
+      "inputs": [
+        {
+          "path": "2018/11_malware_skillz.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-12",
+      "year": 2018,
+      "title": "12_suspicious_floppy",
+      "inputs": [
+        {
+          "path": "2018/12_suspicious_floppy.7z",
+          "password": "infected"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-01",
+      "year": 2019,
+      "title": "1 - Memecat Battlestation",
+      "inputs": [
+        {
+          "path": "2019/1 - Memecat Battlestation.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-02",
+      "year": 2019,
+      "title": "2 - Overlong",
+      "inputs": [
+        {
+          "path": "2019/2 - Overlong.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-03",
+      "year": 2019,
+      "title": "3 - Flarebear",
+      "inputs": [
+        {
+          "path": "2019/3 - Flarebear.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-04",
+      "year": 2019,
+      "title": "4 - Dnschess",
+      "inputs": [
+        {
+          "path": "2019/4 - Dnschess.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-05",
+      "year": 2019,
+      "title": "5 - demo",
+      "inputs": [
+        {
+          "path": "2019/5 - demo.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-06",
+      "year": 2019,
+      "title": "6 - bmphide",
+      "inputs": [
+        {
+          "path": "2019/6 - bmphide.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-07",
+      "year": 2019,
+      "title": "7 - wopr",
+      "inputs": [
+        {
+          "path": "2019/7 - wopr.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-08",
+      "year": 2019,
+      "title": "8 - snake",
+      "inputs": [
+        {
+          "path": "2019/8 - snake.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-09",
+      "year": 2019,
+      "title": "9 - reloadered",
+      "inputs": [
+        {
+          "path": "2019/9 - reloadered.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-10",
+      "year": 2019,
+      "title": "10 - Mugatu",
+      "inputs": [
+        {
+          "path": "2019/10 - Mugatu.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2019-11",
+      "year": 2019,
+      "title": "11 - vv_max",
+      "inputs": [
+        {
+          "path": "2019/11 - vv_max.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-01",
+      "year": 2020,
+      "title": "fidler",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "1 - fidler/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-02",
+      "year": 2020,
+      "title": "garbage",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "2 - garbage/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-03",
+      "year": 2020,
+      "title": "wednesday",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "3 - wednesday/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-04",
+      "year": 2020,
+      "title": "report",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "4 - report/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-05",
+      "year": 2020,
+      "title": "TKApp",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "5 - TKApp/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-06",
+      "year": 2020,
+      "title": "codeit",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "6 - codeit/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-07",
+      "year": 2020,
+      "title": "re_crowd",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "7 - re_crowd/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-08",
+      "year": 2020,
+      "title": "Aardvark",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "8 - Aardvark/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-09",
+      "year": 2020,
+      "title": "crackinstaller",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "9 - crackinstaller/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-10",
+      "year": 2020,
+      "title": "break",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "10 - break/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2020-11",
+      "year": 2020,
+      "title": "rabbithole",
+      "inputs": [
+        {
+          "path": "2020/Flare-On7_Challenges.7z",
+          "password": "flare",
+          "member_prefix": "11 - rabbithole/"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-01",
+      "year": 2021,
+      "title": "01_credchecker",
+      "inputs": [
+        {
+          "path": "2021/01_credchecker.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-02",
+      "year": 2021,
+      "title": "02_known",
+      "inputs": [
+        {
+          "path": "2021/02_known.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-03",
+      "year": 2021,
+      "title": "03_antioch",
+      "inputs": [
+        {
+          "path": "2021/03_antioch.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-04",
+      "year": 2021,
+      "title": "04_myaquaticlife",
+      "inputs": [
+        {
+          "path": "2021/04_myaquaticlife.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-06",
+      "year": 2021,
+      "title": "06_PetTheKitty",
+      "inputs": [
+        {
+          "path": "2021/06_PetTheKitty.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-07",
+      "year": 2021,
+      "title": "07_spel",
+      "inputs": [
+        {
+          "path": "2021/07_spel.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-08",
+      "year": 2021,
+      "title": "08_beelogin",
+      "inputs": [
+        {
+          "path": "2021/08_beelogin.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-09",
+      "year": 2021,
+      "title": "09_evil",
+      "inputs": [
+        {
+          "path": "2021/09_evil.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2021-10",
+      "year": 2021,
+      "title": "10_wizardcult",
+      "inputs": [
+        {
+          "path": "2021/10_wizardcult.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-01",
+      "year": 2022,
+      "title": "01_flaredle",
+      "inputs": [
+        {
+          "path": "2022/01_flaredle.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-02",
+      "year": 2022,
+      "title": "02_PixelPoker",
+      "inputs": [
+        {
+          "path": "2022/02_PixelPoker.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-03",
+      "year": 2022,
+      "title": "03_magic8ball",
+      "inputs": [
+        {
+          "path": "2022/03_magic8ball.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-04",
+      "year": 2022,
+      "title": "04_darn_mice",
+      "inputs": [
+        {
+          "path": "2022/04_darn_mice.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-05",
+      "year": 2022,
+      "title": "05_t8",
+      "inputs": [
+        {
+          "path": "2022/05_t8.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-06",
+      "year": 2022,
+      "title": "06_alamode",
+      "inputs": [
+        {
+          "path": "2022/06_alamode.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-07",
+      "year": 2022,
+      "title": "07_anode",
+      "inputs": [
+        {
+          "path": "2022/07_anode.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-08",
+      "year": 2022,
+      "title": "08_backdoor",
+      "inputs": [
+        {
+          "path": "2022/08_backdoor.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-09",
+      "year": 2022,
+      "title": "09_encryptor",
+      "inputs": [
+        {
+          "path": "2022/09_encryptor.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-10",
+      "year": 2022,
+      "title": "10_Nur geträumt",
+      "inputs": [
+        {
+          "path": "2022/10_Nur geträumt.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2022-11",
+      "year": 2022,
+      "title": "11_the_challenge_that_shall_not_be_named",
+      "inputs": [
+        {
+          "path": "2022/11_the_challenge_that_shall_not_be_named.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-aimbot",
+      "year": 2023,
+      "title": "aimbot",
+      "inputs": [
+        {
+          "path": "2023/aimbot.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-amongrust",
+      "year": 2023,
+      "title": "AmongRust",
+      "inputs": [
+        {
+          "path": "2023/AmongRust.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-flake",
+      "year": 2023,
+      "title": "flake",
+      "inputs": [
+        {
+          "path": "2023/flake.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-flaresay",
+      "year": 2023,
+      "title": "FlareSay",
+      "inputs": [
+        {
+          "path": "2023/FlareSay.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-hvm",
+      "year": 2023,
+      "title": "hvm",
+      "inputs": [
+        {
+          "path": "2023/hvm.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-itsonfire",
+      "year": 2023,
+      "title": "ItsOnFire",
+      "inputs": [
+        {
+          "path": "2023/ItsOnFire.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-kupo",
+      "year": 2023,
+      "title": "kupo",
+      "inputs": [
+        {
+          "path": "2023/kupo.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-mbransom",
+      "year": 2023,
+      "title": "mbransom",
+      "inputs": [
+        {
+          "path": "2023/mbransom.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-mypassion",
+      "year": 2023,
+      "title": "mypassion",
+      "inputs": [
+        {
+          "path": "2023/mypassion.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-over-the-rainbow",
+      "year": 2023,
+      "title": "over_the_rainbow",
+      "inputs": [
+        {
+          "path": "2023/over_the_rainbow.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-where-am-i",
+      "year": 2023,
+      "title": "where_am_i",
+      "inputs": [
+        {
+          "path": "2023/where_am_i.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-x",
+      "year": 2023,
+      "title": "X",
+      "inputs": [
+        {
+          "path": "2023/X.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2023-y0da",
+      "year": 2023,
+      "title": "y0da",
+      "inputs": [
+        {
+          "path": "2023/y0da.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-aray",
+      "year": 2024,
+      "title": "aray",
+      "inputs": [
+        {
+          "path": "2024/aray.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-bloke2",
+      "year": 2024,
+      "title": "bloke2",
+      "inputs": [
+        {
+          "path": "2024/bloke2.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-catbertransomware",
+      "year": 2024,
+      "title": "CatbertRansomware",
+      "inputs": [
+        {
+          "path": "2024/CatbertRansomware.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-checksum",
+      "year": 2024,
+      "title": "checksum",
+      "inputs": [
+        {
+          "path": "2024/checksum.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-clearlyfake",
+      "year": 2024,
+      "title": "clearlyfake",
+      "inputs": [
+        {
+          "path": "2024/clearlyfake.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-frog",
+      "year": 2024,
+      "title": "frog",
+      "inputs": [
+        {
+          "path": "2024/frog.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-fullspeed",
+      "year": 2024,
+      "title": "fullspeed",
+      "inputs": [
+        {
+          "path": "2024/fullspeed.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-mememaker3000",
+      "year": 2024,
+      "title": "mememaker3000",
+      "inputs": [
+        {
+          "path": "2024/mememaker3000.7z",
+          "password": "flare"
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-serpentine",
+      "year": 2024,
+      "title": "serpentine",
+      "inputs": [
+        {
+          "path": "2024/serpentine.7z",
+          "password": "flare"
+        }
+      ]
+    }
+  ],
+  "exclusions": [
+    {
+      "id": "flare-2019-12",
+      "year": 2019,
+      "title": "help",
+      "reason": "Local payload incomplete or absent; excluded from the active benchmark by operator decision on 2026-09-10"
+    },
+    {
+      "id": "flare-2021-05",
+      "year": 2021,
+      "title": "missing challenge 05",
+      "reason": "Local payload incomplete or absent; excluded from the active benchmark by operator decision on 2026-09-10"
+    },
+    {
+      "id": "flare-2024-sshd",
+      "year": 2024,
+      "title": "sshd",
+      "reason": "Local payload incomplete or absent; excluded from the active benchmark by operator decision on 2026-09-10"
+    }
+  ],
+  "freeze_policy": {
+    "frozen_on": "2026-09-10",
+    "expected_challenges": 116,
+    "synthetic_tests": "Separate diagnostics; never counted in this benchmark",
+    "membership_changes": "Require a new benchmark version; failures of included challenges remain in the denominator",
+    "held_out_years": [
+      2025
+    ]
+  }
+}

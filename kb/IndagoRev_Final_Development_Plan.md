@@ -4,13 +4,30 @@
 
 **Purpose:** Build an agentic reverse-engineering workbench that accepts a program or a system of programs, investigates its behavior autonomously, and answers natural-language questions with inspectable evidence. Provide both an IDA-style desktop application with an integrated model harness and a complete CLI/API for external harnesses.
 
-**Implementation status, 2026-09-08:** The first built-in, local-model,
-end-to-end FLARE-On regression is complete. The harness solved 2014 challenge 3
-with a hash-pinned static recovery, an exact Qwen-selected solution, and an
-answered report gated by `verified_solve`. See
+**Implementation status, 2026-09-10:** A fresh two-generation local-Qwen run of
+FLARE-On 2014 challenge 3 passed the repaired question-bound gate. Five decoder
+stages pass XAIR instruction/control-flow checks and the recovered
+`BrokenByte` value reaches its static call sink, so the result is classified as
+`verified_transformation`. It can satisfy only a question that explicitly
+requires that proof kind; it is not labeled observed output, accepted input, or
+an independent grade. Its report therefore has `requirements_verified: true`
+and `verified_solve: false`. The
+operator-side benchmark verifier supplies the separate
+`independently_graded_challenge_solve` proof type. See
+[`docs/solve-verification.md`](../docs/solve-verification.md) and
 [`docs/flareon-end-to-end-2026-09-08.md`](../docs/flareon-end-to-end-2026-09-08.md).
-This is one public static challenge; the private-target, runtime, and full-archive
-acceptance targets below remain open.
+The private-target, runtime, and full-archive acceptance targets below remain
+open.
+
+**Task 2 gate closure:** Checker version 2 additionally verifies original native
+initializer stores and exact invoked-buffer identity, full supported decoder-loop
+operands/reset/back edges, and publication-time source hashes/revision freshness.
+`runtime io-run` now produces bounded native receipts for explicitly trusted PE/ELF
+fixtures; accepted-input proofs require an external exact I/O oracle and a
+contrasting negative input. This is not a disposable lab or independent challenge
+grading. A fresh `BrokenByte` run passed version 2 in 65.302 seconds with 513 native
+stores checked, two model generations, and no target execution. See the gate
+closure and runtime-receipt sections in `docs/solve-verification.md`.
 
 This document supersedes `Autonomous_RE_Platform_Consolidated_Project_Plan.md` as the development baseline. “Final” means a coherent set of decisions and release gates; research results and measured engineering constraints can change it through recorded architecture decisions.
 
@@ -653,6 +670,13 @@ Treat model-produced scripts and terminal output as untrusted across these bound
 | Multi-component laboratory systems | Test IPC, drivers, timing, environment changes, and causality | System-level capability for the exact tested configurations |
 
 ### 15.2 FLARE-On catalogue and all-challenges target
+
+**Operator scope update, 2026-09-10:** Development catalogue is frozen to
+2014–2024 (116 included challenge identities; three incomplete payloads explicitly
+excluded by the operator). Synthetic diagnostics are separate from this score.
+2025 is reserved for evaluation after project
+completion, not training/development. See [catalogue and grading contract](../docs/flare-on-benchmark.md).
+The original through-2025 target below is superseded by this split for current work.
 
 At review, the official archive lists completed editions through **FLARE-On 12 (2025)**. Freeze the catalogue from official releases, then record every year, challenge, artifact hash, format/runtime, dependencies, verifier, and redistribution/access constraints. New editions become separately versioned additions. [Official FLARE-On archive](https://flare-on.com/)
 
