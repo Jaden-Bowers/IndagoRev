@@ -3,7 +3,7 @@
   "qualified": false,
   "qualification_state": "development-unqualified",
   "reason": "The integration checkout differs from the original AIRECE pins. AIRECE is now compiled into IndagoRev against the recorded local XAIR components; cross-platform qualification remains outstanding.",
-  "observed_on": "2026-09-05",
+  "observed_on": "2026-09-11",
   "components": {
     "zstd": {
       "path": "vendor/zstd/upstream",
@@ -74,19 +74,19 @@
     },
     "xair": {
       "path": "xair/XAIR",
-      "revision": "02c37b05348ac32a1019d4947e57964a2024ac9f",
+      "revision": "f70d7715bfb16eb4a6ae15838b3a5d071944e6f5",
       "local_extension": "xair_block_reopen builder API in include/xair/xair.h and src/xair.c permits reconnecting unfrozen lifted blocks; instruction semantics unchanged",
-      "local_patch": "components/patches/xair-block-reopen.patch",
+      "historical_patch": "components/patches/xair-block-reopen.patch",
       "airece_expected_revision": "edd5c55a9faf974e2147867565ac6a727bd270eb"
     },
     "xair_cfg": {
       "path": "xair/XAIR_CFG",
-      "revision": "aea66d728ff824f09455e4c5447e210247a22a0a",
+      "revision": "8edeb68e0a4039516b716a2502f1093b04c181cd",
       "airece_expected_revision": "e9a0b0674f0710c4d372dff48fc1b1b6041e65a9"
     },
     "xair_sym": {
       "path": "xair/XAIR_SYM",
-      "revision": "e545ea94f092eae9f03c9e7f3cc79f58d7f0c469",
+      "revision": "624040c9cdaf9f0e4d21e23b654a95f5c1a32997",
       "airece_expected_revision": "b9ee5488ba6141e4429bcbbf80a7bdfb73093242"
     },
     "z3": {

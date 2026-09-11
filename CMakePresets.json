@@ -1,0 +1,37 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {"major": 3, "minor": 25, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "native-base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/out/native-${hostSystemName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "INDAGO_BUILD_TESTS": "OFF",
+        "INDAGO_ALLOW_UNSTAGED_GDB": "ON",
+        "INDAGO_RUNTIME_PAYLOAD_DIR": "${sourceDir}/out/native-${hostSystemName}/unstaged-payloads",
+        "INDAGO_LIEF_SDK": "${sourceDir}/out/native-${hostSystemName}/unstaged-lief"
+      }
+    },
+    {
+      "name": "windows-native",
+      "displayName": "Windows x64 native core (x86/x64 targets)",
+      "inherits": "native-base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"}
+    },
+    {
+      "name": "linux-native",
+      "displayName": "Linux native core (x86/x64 targets)",
+      "inherits": "native-base",
+      "generator": "Ninja",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux"}
+    }
+  ],
+  "buildPresets": [
+    {"name": "windows-native", "configurePreset": "windows-native", "configuration": "Release", "targets": ["indago"], "jobs": 4},
+    {"name": "linux-native", "configurePreset": "linux-native", "targets": ["indago"], "jobs": 4}
+  ]
+}

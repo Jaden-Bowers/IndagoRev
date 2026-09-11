@@ -1,0 +1,9 @@
+[submodule "xair/XAIR"]
+	path = xair/XAIR
+	url = https://github.com/Jaden-Bowers/XAIR.git
+[submodule "xair/XAIR_CFG"]
+	path = xair/XAIR_CFG
+	url = https://github.com/Jaden-Bowers/XAIR_CFG.git
+[submodule "xair/XAIR_SYM"]
+	path = xair/XAIR_SYM
+	url = https://github.com/Jaden-Bowers/XAIR_SYM.git

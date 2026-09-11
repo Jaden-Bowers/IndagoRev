@@ -12,12 +12,8 @@ build/
 .indago/
 work/
 
-# Independently versioned upstream repositories. Their exact revisions are
-# recorded in config/toolchain.lock.json; do not flatten nested Git histories.
+# Local-only checkouts. The three XAIR engines are tracked Git submodules.
 /xair/AIRECE/
-/xair/XAIR/
-/xair/XAIR_CFG/
-/xair/XAIR_SYM/
 /ghidra/
 
 # Local challenge corpus (independent upstream repository, not product source).
