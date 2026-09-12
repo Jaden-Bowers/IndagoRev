@@ -1,5 +1,10 @@
 # Built-in native model loop — bounded static scope
 
+Current development uses the pinned OpenRouter DeepSeek profile and the
+[general investigation policy](general-investigation.md). The local Qwen setup
+and authorization statements below describe earlier development runs, not the
+current model selection.
+
 For controller-owned inventory, function workflows, a checked observation ledger,
 and opt-in local structured responses, see [assisted static investigations](assisted-static-harness.md).
 

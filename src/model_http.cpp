@@ -1,8 +1,12 @@
 #include "indago/model_provider.hpp"
 #include "workbench_db.hpp"
+#include "model_credentials.hpp"
 #include <atomic>
 #include <charconv>
 #include <thread>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
@@ -33,17 +37,35 @@ struct Deadline {
       throw std::runtime_error("model generation timed out");
   }
 };
+std::uint64_t retry_delay(std::string text) {
+  const auto first=text.find_first_not_of(" \t\r\n");
+  if(first==text.npos)return 60000;
+  text=text.substr(first,text.find_last_not_of(" \t\r\n")-first+1);
+  std::uint64_t seconds=0;
+  const auto parsed=std::from_chars(text.data(),text.data()+text.size(),seconds);
+  if(parsed.ec==std::errc{}&&parsed.ptr==text.data()+text.size()&&seconds<=UINT64_MAX/1000)
+    return std::max<std::uint64_t>(1000,seconds*1000);
+  std::tm date{};std::istringstream input(text);input.imbue(std::locale::classic());
+  input>>std::get_time(&date,"%a, %d %b %Y %H:%M:%S GMT");
+  if(!input.fail()) {
+#ifdef _WIN32
+    const auto epoch=_mkgmtime64(&date);
+#else
+    const auto epoch=timegm(&date);
+#endif
+    const auto now=std::time(nullptr);
+    if(epoch>=0)return epoch>now?static_cast<std::uint64_t>(epoch-now)*1000:1000;
+  }
+  // Do not guess an earlier retry time for an unrecognized server directive.
+  return 86400000;
+}
 std::string credential(const nlohmann::json &profile) {
   if (profile.at("provider") != "openrouter")
     return {};
-  auto secret =
-      wb::read(profile.at("credential_file").get<std::string>(), 4096);
-  while (!secret.empty() && (secret.back() == '\r' || secret.back() == '\n'))
-    secret.pop_back();
-  if (secret.empty() ||
-      secret.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU"
-                               "VWXYZ0123456789_-.") != secret.npos)
-    throw std::runtime_error("invalid controller credential file");
+  auto secret = parse_model_credential(
+      wb::read(profile.at("credential_file").get<std::string>(), 65536),
+      profile.value("credential_format",std::string("raw")),
+      profile.value("credential_variable",std::string("OPENROUTER_API_KEY")));
   return secret;
 }
 #ifdef _WIN32
@@ -157,12 +179,17 @@ std::string http_body(const std::string &wire) {
   auto split = wire.find("\r\n\r\n");
   if (split == wire.npos || split > 65536)
     throw std::runtime_error("invalid model HTTP headers");
-  if (!wire.starts_with("HTTP/1.1 200 ") && !wire.starts_with("HTTP/1.0 200 "))
-    throw std::runtime_error(
-        "model HTTP request failed; redirects and retries disabled");
   auto headers = wire.substr(0, split);
   for (auto &c : headers)
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if(wire.starts_with("HTTP/1.1 429 ")||wire.starts_with("HTTP/1.0 429 ")) {
+    const auto field=headers.find("\r\nretry-after:");std::string retry;
+    if(field!=headers.npos) {const auto end=headers.find("\r\n",field+2);retry=wire.substr(field+14,(end==headers.npos?split:end)-(field+14));}
+    throw ModelRateLimitError(retry_delay(retry));
+  }
+  if (!wire.starts_with("HTTP/1.1 200 ") && !wire.starts_with("HTTP/1.0 200 "))
+    throw std::runtime_error(
+        "model HTTP request failed; redirects and retries disabled");
   auto body = wire.substr(split + 4);
   if (headers.find("\r\ntransfer-encoding: chunked") != headers.npos) {
     std::string decoded;
@@ -274,9 +301,9 @@ std::string model_http_request(const nlohmann::json &profile,
                      sizeof(redirect));
     WinHttpSetOption(handle, WINHTTP_OPTION_AUTOLOGON_POLICY, &autologon,
                      sizeof(autologon));
-    std::wstring headers =
-        L"Content-Type: application/json\r\nAccept: "
-        L"text/event-stream\r\nAccept-Encoding: identity\r\n";
+    std::wstring headers = L"Content-Type: application/json\r\nAccept: ";
+    headers += body.value("stream",true)?L"text/event-stream":L"application/json";
+    headers += L"\r\nAccept-Encoding: identity\r\n";
     if (!secret.empty())
       headers += L"Authorization: Bearer " + wide(secret) + L"\r\n";
     if (!WinHttpSendRequest(
@@ -292,8 +319,15 @@ std::string model_http_request(const nlohmann::json &profile,
     if (!WinHttpQueryHeaders(
             handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
             WINHTTP_HEADER_NAME_BY_INDEX, &status, &size,
-            WINHTTP_NO_HEADER_INDEX) ||
-        status != 200)
+            WINHTTP_NO_HEADER_INDEX))
+      throw std::runtime_error("model HTTP status unavailable; no automatic retry");
+    if(status==429) {
+      wchar_t retry[256]{};DWORD retry_size=sizeof(retry);std::string text;
+      if(WinHttpQueryHeaders(handle,WINHTTP_QUERY_CUSTOM,L"Retry-After",retry,&retry_size,WINHTTP_NO_HEADER_INDEX))
+        for(const auto character:retry) {if(!character)break;text.push_back(character<128?static_cast<char>(character):'?');}
+      throw ModelRateLimitError(retry_delay(text));
+    }
+    if(status!=200)
       throw std::runtime_error("model HTTP status " + std::to_string(status) +
                                "; no automatic retry");
     std::string wire;
@@ -344,8 +378,9 @@ std::string model_http_request(const nlohmann::json &profile,
   }
   std::string request = "POST " + path + " HTTP/1.1\r\nHost: " + host + ":" +
                         port +
-                        "\r\nContent-Type: application/json\r\nAccept: "
-                        "text/event-stream\r\nAccept-Encoding: "
+                        "\r\nContent-Type: application/json\r\nAccept: " +
+                        (body.value("stream",true)?"text/event-stream":"application/json") +
+                        "\r\nAccept-Encoding: "
                         "identity\r\nConnection: close\r\nContent-Length: " +
                         std::to_string(data.size()) + "\r\n";
   if (!secret.empty())

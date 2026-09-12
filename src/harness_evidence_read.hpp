@@ -5,12 +5,26 @@
 #include <iterator>
 
 namespace indago {
+// A bounded projection of native record fields. Nested data stays addressable
+// through the original source pointer; omitted fields are never inferred.
+inline wb::J evidence_scalar_projection(const wb::J &record) {
+    wb::J fields=wb::J::object();
+    if(!record.is_object())return fields;
+    for(auto it=record.begin();it!=record.end();++it) {
+        if(!it.value().is_primitive()||it.value().dump().size()>512)continue;
+        fields[it.key()]=it.value();
+        if(fields.dump().size()>1024)fields.erase(it.key());
+    }
+    return fields;
+}
 // Read one verified immutable native JSON snapshot. JSON pointers are relative
 // to that native document, never filesystem paths or authority instructions.
 inline wb::J harness_evidence_page(const ProjectStore& store, const wb::J& inv,
                                    const wb::J& request) {
     using namespace wb;
-    keys(request,{"project","id","pointer","offset","limit","max_bytes","raw_sha256"});
+    keys(request,{"project","id","pointer","offset","limit","max_bytes","raw_sha256","projection"});
+    const auto projection=request.value("projection",std::string("descriptors"));
+    if(projection!="descriptors"&&projection!="scalars")throw std::runtime_error("Evidence projection must be descriptors or scalars");
     const auto evidence_id=request.at("id").get<std::string>();identifier(evidence_id);
     const auto pointer=request.value("pointer",std::string{});
     if(pointer.size()>1024)throw std::runtime_error("Evidence JSON pointer exceeds 1024 bytes");
@@ -59,6 +73,13 @@ inline wb::J harness_evidence_page(const ProjectStore& store, const wb::J& inv,
             else if(it->is_string())item["total_bytes"]=it->get_ref<const std::string&>().size();
             if(it->is_primitive()&&(!it->is_string()||it->get_ref<const std::string&>().size()<=512)&&it->dump().size()<=512)item["value"]=*it;
             else item["value_omitted"]=true;
+            if(projection=="scalars"&&it->is_object()) {
+                const auto fields=evidence_scalar_projection(*it);
+                if(!fields.empty()) {
+                    item["value"]=fields;item["value_projection"]="scalars";
+                    item["value_omitted"]=fields!=*it;
+                }
+            }
             result["items"].push_back(item);
             if(result.dump().size()>3700){result["items"].back().erase("value");result["items"].back()["value_omitted"]=true;if(result.dump().size()>3700){result["items"].erase(result["items"].end()-1);break;}}
         }

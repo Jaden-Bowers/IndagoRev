@@ -7,6 +7,7 @@
 #include "harness_workbench.hpp"
 #include "indago/airece.hpp"
 #include "model_controller.hpp"
+#include "model_investigation.hpp"
 #include "workbench_db.hpp"
 #include "workbench_publication.hpp"
 #include <atomic>
@@ -509,6 +510,8 @@ J harness_capabilities() {
         {"validation", {"check"}},
         {"knowledge", {"show", "list"}},
         {"evidence", {"show", "read"}},
+        {"artifact", {"read"}},
+        {"calculation", {"evaluate"}},
         {"index", {"entities", "relations", "claims", "revisions"}},
         {"graph", {"search", "packet", "neighborhood"}},
         {"coverage", {"report"}}}},
@@ -670,7 +673,7 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
     keys(budget, {"max_actions", "wall_ms", "output_bytes"});
     J limits{
         {"max_actions", bound(budget, "max_actions", 16, 128)},
-        {"wall_ms", bound(budget, "wall_ms", 120000, 600000)},
+        {"wall_ms", bound(budget, "wall_ms", 120000, 3600000)},
         {"output_bytes", bound(budget, "output_bytes", 1048576, 16777216)}};
     auto id = make_id("inv"), token = make_id("lease");
     J record{{"schema", "indago.investigation.v1"},
@@ -754,11 +757,17 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
     throw std::runtime_error("ownership conflict: built-in reasoning decisions "
                              "must come from its selected controller");
   if (operation == "controller") {
-    keys(r, {"project", "id"});
+    keys(r, {"project", "id", "collection", "offset", "limit"});
     Q q(db, "SELECT record FROM wb_model_runs WHERE project=? AND id=?");
     if (!q.s(1, p).s(2, id).row())
       return {{"status", "not_started"}};
-    return J::parse(q.text(0));
+    const auto controller=J::parse(q.text(0));
+    if(r.contains("collection")) {
+      auto page=r;page.erase("project");page.erase("id");
+      auto paged=controller.at("investigation_state");paged["facts"]=controller.value("fact_ledger",J::array());
+      return investigation_page(paged,page);
+    }
+    return controller;
   }
   if (operation == "show") {
     keys(r, {"project", "id"});
@@ -1198,7 +1207,13 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
         auto c = citation(db, inv, ref);
         if (status == "answered" &&
             (c["current"] != true || c["status"] != "completed"))
-          throw std::runtime_error("answered report requires current complete evidence; use partial");
+          throw std::runtime_error(
+              "answered report citation " + ref.get<std::string>() +
+              " is not current and complete (current=" +
+              std::string(c["current"] == true ? "true" : "false") +
+              ", status=" + c["status"].get<std::string>() +
+              "); remove or replace this citation, or use partial only when the "
+              "required fact itself remains unresolved");
         claim["citations"].push_back(c);
       }
       if(claim.contains("checks")) {

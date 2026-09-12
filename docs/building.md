@@ -58,8 +58,9 @@ staging paths so local development payloads cannot mask clone/build defects.
 
 ## Native clone smoke check
 
-CI builds both native presets from recursively initialized checkouts without
-optional SDK staging. `tests/native_clone_smoke.ps1 -Executable PATH` (PowerShell
+Run the native presets locally from recursively initialized checkouts without
+optional SDK staging. GitHub Actions workflows are not enabled during early
+development. `tests/native_clone_smoke.ps1 -Executable PATH` (PowerShell
 7) checks CLI startup, import, XAIR inventory/CFG/semantics, and persisted AIRECE
 evidence. It uses the pinned engine's synthetic control-flow PE and never executes
 the target. The fixture intentionally contains unresolved flow: partial native

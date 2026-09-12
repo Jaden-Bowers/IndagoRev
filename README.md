@@ -73,6 +73,7 @@ Inference is optional and requires your own configured provider.
 - [Build profiles and dependencies](docs/building.md)
 - [Static analysis](docs/static-stage.md) · [Runtime analysis](docs/runtime-stage.md)
 - [Harness](docs/harness.md) · [Built-in model loop](docs/builtin-harness.md)
+- [OpenRouter and general investigations](docs/general-investigation.md)
 - [Proof boundaries](docs/solve-verification.md) · [Benchmark](docs/flare-on-benchmark.md)
 - [Repository layout](docs/repository-layout.md) · [Development plan](kb/IndagoRev_Final_Development_Plan.md)
 

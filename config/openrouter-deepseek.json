@@ -1,0 +1,16 @@
+{
+  "provider": "openrouter",
+  "model": "deepseek/deepseek-v4-flash-0731",
+  "credential_file": ".env",
+  "credential_format": "dotenv",
+  "credential_variable": "openrouter_key",
+  "allow_target_context": true,
+  "provider_order": [
+    "deepinfra/fp8"
+  ],
+  "context_tokens": 524288,
+  "output_tokens": 16384,
+  "generation_ms": 300000,
+  "reasoning_effort": "high",
+  "tool_payload_encoding": "json_string"
+}

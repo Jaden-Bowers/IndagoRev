@@ -11,6 +11,13 @@ class ModelTransportError : public std::runtime_error {
 public:
   using std::runtime_error::runtime_error;
 };
+class ModelRateLimitError : public ModelTransportError {
+public:
+  std::uint64_t retry_after_ms;
+  explicit ModelRateLimitError(std::uint64_t delay = 60000)
+      : ModelTransportError("provider HTTP 429; inference rejected, checkpoint retained"),
+        retry_after_ms(delay) {}
+};
 using ModelCancel = std::function<bool()>;
 // Receives no credential. Tests inject deterministic protocol responses here.
 using ModelTransport = std::function<std::string(const nlohmann::json &profile,

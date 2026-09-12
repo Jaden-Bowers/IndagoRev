@@ -130,6 +130,12 @@ int main() {
     }
     if (!rejected)
       throw std::runtime_error("HTTP redirect followed");
+    MockServer limited("HTTP/1.1 429 Too Many Requests\r\nRetry-After: 2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    profile["endpoint"]="http://127.0.0.1:"+std::to_string(limited.port)+"/v1/chat/completions";
+    bool rate_limited=false;
+    try {indago::model_http_request(profile,J::object(),[]{return false;});}
+    catch(const indago::ModelRateLimitError &e) {rate_limited=e.retry_after_ms==2000;}
+    if(!rate_limited)throw std::runtime_error("explicit HTTP 429 loses Retry-After or error type");
     MockServer slow(
         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         500);

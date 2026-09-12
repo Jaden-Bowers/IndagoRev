@@ -7,7 +7,7 @@ using namespace wb;
 J normalize_model_profile(const J &input) {
   keys(input, {"provider", "endpoint", "model", "context_tokens",
                "output_tokens", "generation_ms", "credential_file",
-               "allow_target_context", "provider_order", "weights_revision",
+               "allow_target_context", "provider_order", "credential_format", "credential_variable", "reasoning_effort", "weights_revision",
                "quantization", "tokenizer", "chat_template", "server_version", "tool_payload_encoding", "response_mode"});
   J p = input;
   auto provider = p.at("provider").get<std::string>();
@@ -56,18 +56,29 @@ J normalize_model_profile(const J &input) {
     p["credential_file"] = fs::absolute(path).lexically_normal().string();
   } else
     throw std::runtime_error("unsupported model provider");
+  if(p.contains("credential_format")) {
+    if(provider!="openrouter" || !std::set<std::string>{"raw","dotenv"}.contains(p.at("credential_format").get<std::string>()))
+      throw std::runtime_error("credential_format requires OpenRouter raw or dotenv");
+  }
+  if(p.contains("credential_variable") && (provider!="openrouter" || p.value("credential_format",std::string("raw"))!="dotenv" ||
+      !std::regex_match(p.at("credential_variable").get<std::string>(),std::regex("[A-Za-z_][A-Za-z0-9_]{0,127}"))))
+    throw std::runtime_error("invalid dotenv credential variable");
+  if(p.contains("reasoning_effort")) {
+    if(provider!="openrouter" || !std::set<std::string>{"low","medium","high"}.contains(p.at("reasoning_effort").get<std::string>()))
+      throw std::runtime_error("reasoning_effort requires OpenRouter low, medium or high");
+  }
   const auto encoding=p.value("tool_payload_encoding",std::string("object"));
   const auto mode=p.value("response_mode",std::string("tools"));
   if(mode!="tools"&&(mode!="json_schema"||provider!="local"))
     throw std::runtime_error("json_schema response mode requires an explicit local profile");
   if(mode=="json_schema"&&encoding!="object")
     throw std::runtime_error("json_schema requires object payload encoding");
-  if(encoding!="object"&&(encoding!="json_string"||provider!="local"))
-    throw std::runtime_error("Invalid tool payload encoding; json_string requires an explicit local profile");
+  if(encoding!="object"&&encoding!="json_string")
+    throw std::runtime_error("Invalid tool payload encoding; select object or json_string explicitly");
   if(p.contains("tool_payload_encoding"))p["tool_payload_encoding"]=encoding;
-  p["context_tokens"] = bound(p, "context_tokens", 16384, 131072);
+  p["context_tokens"] = bound(p, "context_tokens", 16384, provider=="openrouter"?1048576:131072);
   p["output_tokens"] = bound(p, "output_tokens", 2048, 16384);
-  p["generation_ms"] = bound(p, "generation_ms", 60000, 120000);
+  p["generation_ms"] = bound(p, "generation_ms", 60000, provider=="openrouter"?600000:120000);
   if (p["context_tokens"].get<unsigned>() < 4096 ||
       p["output_tokens"].get<unsigned>() < 128 ||
       p["output_tokens"].get<unsigned>() >=
@@ -103,7 +114,7 @@ J model_tool_schema(bool finish_only, bool json_string) {
           {"properties",
            {{"kind",
              {{"type", "string"},
-              {"enum", {"analyze", "function", "acceptance", "reason", "retrieve", "record", "checkpoint", "finish"}}}},
+              {"enum", {"analyze", "function", "acceptance", "reason", "retrieve", "record", "checkpoint", "plan", "state", "finish"}}}},
             {"payload", {{"type", "object"}}}}}}}}}};
   schema["function"]["parameters"]["properties"]["payload"]["description"] =
       "A JSON object, never a quoted or escaped JSON string. Its fields depend on kind as described by the controller.";
@@ -119,6 +130,10 @@ J model_tool_schema(bool finish_only, bool json_string) {
 J decode_model_response(std::string_view wire, const J &profile) {
   if (wire.empty() || wire.size() > 1048576)
     throw std::runtime_error("model response byte budget exceeded");
+  const auto wire_sha256=sha256_text(wire);
+  const auto first=wire.find_first_not_of(" \t\r\n");
+  if(first==wire.npos)throw std::runtime_error("empty provider response");
+  wire.remove_prefix(first);
   J response;
   if (wire.front() == '{')
     response = J::parse(wire);
@@ -241,10 +256,11 @@ J decode_model_response(std::string_view wire, const J &profile) {
   }
   if (!decision.at("payload").is_object())
     throw std::runtime_error("investigate payload must be a JSON object, not a quoted or escaped JSON string");
-  if (!std::set<std::string>{"analyze", "function", "acceptance", "reason", "retrieve", "record", "checkpoint", "finish"}
+  if (!std::set<std::string>{"analyze", "function", "acceptance", "reason", "retrieve", "record", "checkpoint", "plan", "state", "finish"}
            .contains(decision.at("kind").get<std::string>()))
     throw std::runtime_error("invalid investigation decision");
-  if (message.dump().size() > 32768 || decision.dump().size() > 32768)
+  const auto message_limit=profile.at("provider")=="openrouter"&&profile.contains("reasoning_effort")?262144u:32768u;
+  if (message.dump().size() > message_limit || decision.dump().size() > 32768)
     throw std::runtime_error(
         "model decision exceeds durable state byte budget");
   return {{"decision", decision},
@@ -253,7 +269,7 @@ J decode_model_response(std::string_view wire, const J &profile) {
           {"model", response["model"]},
           {"served_provider", response.value("provider", J(nullptr))},
           {"finish_reason", choice["finish_reason"]},
-          {"response_sha256", sha256_text(wire)}};
+          {"response_sha256", wire_sha256}};
 }
 J model_complete(const J &profile, const J &messages, const ModelCancel &cancel,
                  ModelTransport transport, bool finish_only) {
@@ -283,6 +299,17 @@ J model_complete(const J &profile, const J &messages, const ModelCancel &cancel,
                         {"allow_fallbacks", false},
                         {"require_parameters", true},
                         {"data_collection", "deny"}};
+  if(profile.at("provider")=="openrouter") {
+    // Several supported endpoints reject parallel_tool_calls. One decision is
+    // still enforced by the response validator, independently of this hint.
+    body.erase("parallel_tool_calls");
+    if(profile.contains("reasoning_effort")) {
+      body["reasoning"]={{"effort",profile.at("reasoning_effort")}};
+      // Preserve the complete provider message, including opaque reasoning blocks.
+      // The SSE adapter intentionally supports only ordinary tool/content deltas.
+      body["stream"]=false;body.erase("stream_options");
+    }
+  }
   // Conservative byte ceiling includes tools and output reserve. Exact
   // tokenizer accounting must be established by the chosen model's capability
   // probe.
@@ -296,6 +323,8 @@ J model_complete(const J &profile, const J &messages, const ModelCancel &cancel,
   try {
     raw = transport ? transport(profile, body, cancel)
                     : model_http_request(profile, body, cancel);
+  } catch (const ModelRateLimitError &) {
+    throw;
   } catch (const std::exception &e) {
     throw ModelTransportError(
         std::string("provider transport failure; no automatic retry: ") +
@@ -312,6 +341,7 @@ J model_complete(const J &profile, const J &messages, const ModelCancel &cancel,
   result["elapsed_ms"] = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - started)
                              .count();
+  result["request_bytes"]=body.dump().size();
   result["context_accounting"] =
       "conservative UTF-8 byte ceiling, not tokenizer qualification";
   return result;
