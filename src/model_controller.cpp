@@ -761,7 +761,7 @@ J harness_explore(StaticService &service, const J &r,
               "kind=analyze payload={proposal:{gap,prediction,expected_evidence,fallback},request:{backend,operation,address?,arguments?,budget?}} collects NEW evidence. All four proposal fields are strings. "
               "Use only these exact available backend/operation pairs: "+catalog.dump()+
               ". Inventory is an XAIR operation; Ghidra uses inspect/functions/strings/imports. Ghidra arguments are optional: omit them for standard analysis. Do not place address/function in arguments; address is a top-level request field. The inventory profile skips auto-analysis and may have no functions. Omit address for whole-binary discovery. Function operations require a real returned hexadecimal address, never a target ID, entry label, or guessed address. "
-              "For an unfamiliar artifact first retrieve family:artifact operation:route with request:{}; routing is a hint, not proof of support or an execution grant. Use ILSpy for managed metadata/C#/IL, with arguments.dependencies:[IMPORTED_TARGET_ID] only from investigation scope. ILSpy references/resources expose cross-assembly identities and embedded file ranges. Mono observation uses Frida recipe managed; CLR/CoreCLR method observation is not implemented. Choose Ghidra for native pseudocode/xrefs, XAIR for instructions/CFG, symbolic analysis for bounded constraints, enrichment when available. Each action is separately charged. "
+              "For an unfamiliar artifact first retrieve family:artifact operation:route with request:{}; routing is a hint, not proof of support or an execution grant. Use ILSpy for managed metadata/C#/IL, with arguments.dependencies:[IMPORTED_TARGET_ID] only from investigation scope. ILSpy references/resources expose cross-assembly identities and embedded file ranges. Mono observation uses Frida recipe managed; granted CoreCLR IO experiments support managed_trace:true. Legacy CLR observation is not qualified. Choose Ghidra for native pseudocode/xrefs, XAIR for instructions/CFG, symbolic analysis for bounded constraints, enrichment when available. Each action is separately charged. "
               "Omit budget to use progress-aware native defaults (including cold Ghidra import time). Otherwise budget={wall_ms,output_bytes,memory_bytes,max_items}. "
               "An analyze result contains evidence_ids and bounded native previews (including function inventories and decompilation). Use preview values immediately; retrieve only omitted details. A result summary alone is not the underlying analysis. "
               "kind=retrieve payload={family:evidence,operation:read,request:{id:EVIDENCE_ID,pointer?,offset?,limit:16,max_bytes:2048,raw_sha256?}}. "
@@ -967,7 +967,11 @@ J harness_explore(StaticService &service, const J &r,
               if(!budget.contains("memory_bytes"))budget["memory_bytes"]=2147483648ULL;
               if(!budget.contains("max_items"))budget["max_items"]=128;
               if(!budget.contains("wall_ms"))budget["wall_ms"]=backend=="ghidra"?60000:backend=="sym"?20000:10000;
-              harness_select_component(show(),request);
+              // Bind before service normalization, whose standalone default is
+              // the project's latest import rather than this investigation's primary.
+              const auto selected=harness_select_component(show(),request);
+              request["target_id"]=selected.at("target_id");
+              request["artifact_sha256"]=selected.at("artifact_sha256");
               request=service.normalize(request);
               }
               decision["payload"]["request"]=request;state["pending"]=decision;

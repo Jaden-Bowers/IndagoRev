@@ -23,9 +23,10 @@ The selected development artifacts are:
 
 Run `i2MBy2` is an independently graded static solve of 2015 C2. The model chose
 the functions, reconstructed the algorithm, located the encoded bytes, declared a
-bounded calculation, and reported `a_Little_b1t_harder_plez@flare-on.com`. A
-separate operator-side decoder produced the same 37 bytes and forward-encoded the
-candidate back to the reversed target table. The official FireEye solution PDF
+bounded calculation, and reported a candidate retained only in the operator-side
+evaluation record. A separate operator-side decoder produced the same 37 bytes
+and forward-encoded the candidate back to the reversed target table. The official
+FireEye solution PDF
 (SHA-256 `78ca51d7e77b5ef5251d4adcdfc021f80fb83dc553f93ee9528edd7ff6275175`)
 independently confirms the same algorithm. The target was not executed.
 

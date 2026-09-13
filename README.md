@@ -72,6 +72,7 @@ Inference is optional and requires your own configured provider.
 ## Documentation
 
 - [Current capability contract and build profiles](docs/current-capabilities.md)
+- [Diverse FLARE-On development subset](docs/development-subset-evaluation.md)
 
 - [Bounded analysis helpers](docs/analysis-helpers.md)
 - [Autonomous runtime experiments and remaining gaps](docs/autonomous-experiments.md)

@@ -533,7 +533,7 @@ J harness_capabilities() {
         {"validation", {"check"}},
         {"knowledge", {"show", "list"}},
         {"evidence", {"show", "read"}},
-        {"artifact", {"read"}},
+        {"artifact", {"read", "route"}},
         {"calculation", {"evaluate"}},
         {"helper", {"capabilities", "read"}},
         {"experiment", {"capabilities", "read", "reconcile"}},

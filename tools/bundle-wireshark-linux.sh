@@ -2,10 +2,10 @@
 # Generated staging outputs only; never installs packages or capture privileges.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
-sdk=/home/jaden/.cache/indago/wireshark-sdk
-build=/home/jaden/.cache/indago/wireshark-build
+sdk=${INDAGO_WIRESHARK_SDK:-${XDG_CACHE_HOME:-$HOME/.cache}/indago/wireshark-sdk}
+build=${INDAGO_WIRESHARK_BUILD:-${XDG_CACHE_HOME:-$HOME/.cache}/indago/wireshark-build}
 destination="$repo/out/runtime-payload/linux/network"
-free=$(df -B1 --output=avail /mnt/c | tail -n 1 | tr -d ' ')
+free=$(df -B1 --output=avail "$repo" | tail -n 1 | tr -d ' ')
 ((free>21474836480+536870912)) || { echo 'Insufficient payload storage reservation' >&2;exit 1; }
 [[ $(sha256sum "$sdk/wireshark-4.6.8.tar.xz" | cut -d' ' -f1) == c0f1ccf217bc0d3b51a9c03ea178b0f7df682e475da26a2d21cd4a1bdd9579d0 ]] || exit 1
 # Refuse unexpected shared dependencies instead of relying on a private SDK at run time.

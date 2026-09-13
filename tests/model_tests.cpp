@@ -287,6 +287,8 @@ int main() {
     rejects([&]{harness_action(svc,"create",extended_create);},"investigation time budget remains bounded");
     auto general_create=create;general_create["owner"]["profile"]["context_tokens"]=65536;
     auto general_inv=harness_action(svc,"create",general_create);investigations.push_back(general_inv);
+    check(harness_capabilities().at("read_families").at("artifact")==J::array({"read","route"}),
+          "capabilities advertise implemented artifact routing");
     auto artifact_page=harness_read_packet(svc,general_inv,{{"family","artifact"},{"operation","read"},{"request",{{"offset",0},{"max_bytes",2}}}});
     check(artifact_page.at("hex")=="4d5a"&&artifact_page.at("raw_sha256")==first_target.sha256,"scoped artifact page reads exact PE signature");
     auto mapped_page=harness_read_packet(svc,general_inv,{{"family","artifact"},{"operation","read"},{"request",{{"address","0x140001000"},{"max_bytes",16}}}});
@@ -315,7 +317,7 @@ int main() {
       const auto packet=J::parse(body.at("messages")[1].at("content").get<std::string>());
       check(packet.contains("investigation_state"),"general policy exposes durable state");
       if(general_turn++==0)return response(decision("plan",{{"expected_revision","irrelevant-model-version"},{"collection","tasks"},{"records",J::array({task("input_dependency",J::array(),9)})}}));
-      if(general_turn==2)return response(decision("analyze",{{"proposal",{{"gap","inventory"},{"prediction","native metadata"},{"expected_evidence","inventory"},{"fallback","report gap"}}},{"request",{{"backend","xair"},{"operation","inventory"},{"target_id",first_target.id},{"budget",{{"wall_ms",120000}}}}}}));
+      if(general_turn==2)return response(decision("analyze",{{"proposal",{{"gap","inventory"},{"prediction","native metadata"},{"expected_evidence","inventory"},{"fallback","report gap"}}},{"request",{{"backend","xair"},{"operation","inventory"},{"budget",{{"wall_ms",120000}}}}}}));
       const auto feedback=J::parse(body.at("messages").back().at("content").get<std::string>());
       if(general_turn==4) {
         check(feedback.at("source_verified")==true&&!feedback.value("omitted",false),"oversized model page requests are safely narrowed and remain usable");
@@ -329,6 +331,9 @@ int main() {
     auto general_saved=harness_action(svc,"controller",{{"project","demo"},{"id",general_inv["id"]}});
     check(general_saved.at("investigation_state").at("tasks")[0].at("id")=="input_dependency","plan retained by native controller persistence");
     auto general_actions=harness_action(svc,"actions",{{"project","demo"},{"id",general_inv["id"]}});
+    check(general_actions.at("records")[0].at("request").at("target_id")==first_target.id&&
+          general_actions.at("records")[0].at("request").at("artifact_sha256")==first_target.sha256,
+          "omitted selector stays bound to investigation primary, not latest imported companion");
     check(general_actions.at("records")[0].at("request").at("budget").at("output_bytes")==131072,"partial model budget receives bounded output default");
     check(general_actions.at("records")[0].at("request").at("budget").at("wall_ms")==10000,"controller bounds model-requested time by selected backend policy");
     auto malformed_inv=harness_action(svc,"create",general_create);investigations.push_back(malformed_inv);

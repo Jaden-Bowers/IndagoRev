@@ -1,0 +1,343 @@
+{
+  "schema": "indago.development-subset-summary.v1",
+  "catalogue_sha256": "58e5f957f264e47052fdeb652a76fc9353d010655c51ea0b8da5471ec20bb3a1",
+  "attempted": 2,
+  "reported_answers": 0,
+  "independently_verified_solves": 0,
+  "qualification": false,
+  "grading": "No independent answer oracle configured; no solve-rate claim.",
+  "rows": [
+    {
+      "challenge": "flare-2014-02",
+      "family": "html_javascript",
+      "artifact_sha256": "d1b235e49336c2e510100bd3ffa3113d9c757ffb4829e9564597dbab8338b710",
+      "attempt": 2,
+      "budget": {
+        "max_generations": 16,
+        "max_actions": 32,
+        "wall_ms": 540000,
+        "generation_ms": 30000
+      },
+      "status": "budget_exhausted",
+      "controller_status": "budget_exhausted",
+      "model": "huihui-qwen3.8-27b-abliterated",
+      "profile_sha256": "dc2ef2ebef549c82456c8a2f2d782dfad92deb521cbfe860b8c2c6b2423bef80",
+      "generations": 16,
+      "model_elapsed_ms": 179735,
+      "native_actions": 3,
+      "elapsed_ms": 224665,
+      "scope_components": 2,
+      "reported_answer": false,
+      "independently_graded": false,
+      "verified_solve": false,
+      "failure_category": "controller_or_model_investigation_failure",
+      "terminal_reason": "budget_exhausted",
+      "repair_count": 1,
+      "primary_binding_mismatch_generations": [],
+      "decisions": [
+        {
+          "generation": 1,
+          "kind": "plan",
+          "backend": null,
+          "operation": null,
+          "family": null,
+          "status": null,
+          "invalid_request": true
+        },
+        {
+          "generation": 2,
+          "kind": "plan",
+          "backend": null,
+          "operation": null,
+          "family": null,
+          "status": "plan_saved",
+          "invalid_request": false
+        },
+        {
+          "generation": 3,
+          "kind": "analyze",
+          "backend": "airece",
+          "operation": "inspect",
+          "family": null,
+          "status": "failed",
+          "invalid_request": false
+        },
+        {
+          "generation": 4,
+          "kind": "analyze",
+          "backend": "lief",
+          "operation": "inventory",
+          "family": null,
+          "status": "failed",
+          "invalid_request": false
+        },
+        {
+          "generation": 5,
+          "kind": "analyze",
+          "backend": "ilspy",
+          "operation": "inventory",
+          "family": null,
+          "status": "failed",
+          "invalid_request": false
+        },
+        {
+          "generation": 6,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": true
+        },
+        {
+          "generation": 7,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 8,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 9,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 10,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 11,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 12,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 13,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 14,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 15,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        }
+      ],
+      "target_execution": false
+    },
+    {
+      "challenge": "flare-2024-frog",
+      "family": "python_game_source",
+      "artifact_sha256": "517b8b1ac93e0a32a012e6c17037b13f92173e092dc345092c0379e52d83ccc7",
+      "attempt": 2,
+      "budget": {
+        "max_generations": 16,
+        "max_actions": 32,
+        "wall_ms": 540000,
+        "generation_ms": 30000
+      },
+      "status": "budget_exhausted",
+      "controller_status": "budget_exhausted",
+      "model": "huihui-qwen3.8-27b-abliterated",
+      "profile_sha256": "dc2ef2ebef549c82456c8a2f2d782dfad92deb521cbfe860b8c2c6b2423bef80",
+      "generations": 16,
+      "model_elapsed_ms": 188172,
+      "native_actions": 4,
+      "elapsed_ms": 239133,
+      "scope_components": 10,
+      "reported_answer": false,
+      "independently_graded": false,
+      "verified_solve": false,
+      "failure_category": "controller_or_model_investigation_failure",
+      "terminal_reason": "budget_exhausted",
+      "repair_count": 1,
+      "primary_binding_mismatch_generations": [],
+      "decisions": [
+        {
+          "generation": 1,
+          "kind": "plan",
+          "backend": null,
+          "operation": null,
+          "family": null,
+          "status": null,
+          "invalid_request": true
+        },
+        {
+          "generation": 2,
+          "kind": "plan",
+          "backend": null,
+          "operation": null,
+          "family": null,
+          "status": "plan_saved",
+          "invalid_request": false
+        },
+        {
+          "generation": 3,
+          "kind": "analyze",
+          "backend": "airece",
+          "operation": "inspect",
+          "family": null,
+          "status": "failed",
+          "invalid_request": false
+        },
+        {
+          "generation": 4,
+          "kind": "analyze",
+          "backend": "lief",
+          "operation": "inventory",
+          "family": null,
+          "status": "failed",
+          "invalid_request": false
+        },
+        {
+          "generation": 5,
+          "kind": "analyze",
+          "backend": "xair",
+          "operation": "inventory",
+          "family": null,
+          "status": "failed",
+          "invalid_request": false
+        },
+        {
+          "generation": 6,
+          "kind": "analyze",
+          "backend": "ilspy",
+          "operation": "inventory",
+          "family": null,
+          "status": "failed",
+          "invalid_request": false
+        },
+        {
+          "generation": 7,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": true
+        },
+        {
+          "generation": 8,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 9,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 10,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 11,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 12,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 13,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 14,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        },
+        {
+          "generation": 15,
+          "kind": "retrieve",
+          "backend": null,
+          "operation": "read",
+          "family": "artifact",
+          "status": null,
+          "invalid_request": false
+        }
+      ],
+      "target_execution": false
+    }
+  ]
+}

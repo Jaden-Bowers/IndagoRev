@@ -38,6 +38,10 @@ disposable OS provisioning, independently graded corpus performance, hostile-inp
 qualification and redistribution qualification remain open. The frozen catalogue
 has 116 entries; 2025 stays held out. Fixture passes are not challenge solves.
 
+The first diverse four-challenge static-profile measurement produced zero answered
+reports; see [development subset evaluation](development-subset-evaluation.md).
+This is a failure-driven development baseline, not full-corpus qualification.
+
 Use repository-relative documentation paths. Evidence in `out/` is local and not
 shipped. Run `node tools/check-doc-portability.cjs` before publication. Public
 reports must omit credentials, home directories and raw local logs.

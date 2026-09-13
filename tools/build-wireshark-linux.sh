@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-sdk=/home/jaden/.cache/indago/wireshark-sdk
-build=/home/jaden/.cache/indago/wireshark-build
+sdk=${INDAGO_WIRESHARK_SDK:-${XDG_CACHE_HOME:-$HOME/.cache}/indago/wireshark-sdk}
+build=${INDAGO_WIRESHARK_BUILD:-${XDG_CACHE_HOME:-$HOME/.cache}/indago/wireshark-build}
 export PATH="$sdk/root/usr/bin:$PATH"
 export PKG_CONFIG_SYSROOT_DIR="$sdk/root"
 export PKG_CONFIG_LIBDIR="$sdk/root/usr/lib/x86_64-linux-gnu/pkgconfig"
 export BISON_PKGDATADIR="$sdk/root/usr/share/bison"
 export M4="$sdk/root/usr/bin/m4"
-free=$(df -B1 --output=avail /mnt/c | tail -n 1 | tr -d ' ')
+mkdir -p "$build"
+free=$(df -B1 --output=avail "$build" | tail -n 1 | tr -d ' ')
 ((free>21474836480+2147483648)) || { echo 'Insufficient source-build storage reservation' >&2;exit 1; }
 options=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$sdk/root/usr" -DBUILD_SHARED_LIBS=OFF -DUSE_STATIC=ON
   -DGLIB2_STATIC_m_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/libm.so.6

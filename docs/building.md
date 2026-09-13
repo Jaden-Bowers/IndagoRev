@@ -53,6 +53,13 @@ upstream licenses; Ghidra, JDKs, generated workers, and SDK staging remain outsi
 Git. These advanced staging scripts have platform-specific prerequisites; inspect
 their documented paths before running them on a different machine.
 
+Linux Wireshark staging uses the current user's XDG cache by default, with
+`INDAGO_WIRESHARK_SDK` and `INDAGO_WIRESHARK_BUILD` overrides. The SDK directory must
+end in `wireshark-sdk`. Legacy rr package inspection accepts `INDAGO_RR_PACKAGE`
+and `INDAGO_RR_PACKAGE_STAGE`; source-built rr remains the supported replay path.
+Storage checks use the destination filesystem, not an assumed Windows mount.
+SDK package availability and ABI compatibility remain platform-specific gates.
+
 Use a separate build directory after staging, for example:
 
 ```sh

@@ -1,0 +1,12 @@
+{
+  "schema":"indago.development-subset.v1",
+  "catalogue_sha256":"58e5f957f264e47052fdeb652a76fc9353d010655c51ea0b8da5471ec20bb3a1",
+  "selection":"Targeted rerun of the two multi-component cases affected by primary-binding normalization; does not replace or enlarge the four-challenge denominator.",
+  "attempt":2,
+  "held_out_years":[2025],
+  "budget":{"max_generations":16,"max_actions":32,"wall_ms":540000,"generation_ms":30000},
+  "challenges":[
+    {"id":"flare-2014-02","family":"html_javascript","entry":"home.html"},
+    {"id":"flare-2024-frog","family":"python_game_source","entry":"frog.py"}
+  ]
+}

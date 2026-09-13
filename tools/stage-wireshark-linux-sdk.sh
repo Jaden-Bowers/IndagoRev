@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Private headers/tools only: no sudo, apt install, capture permissions or services.
 set -euo pipefail
-sdk=${1:-/home/jaden/.cache/indago/wireshark-sdk}
-case "$sdk" in /home/jaden/.cache/indago/wireshark-sdk) ;; *) echo 'Use the explicit private development SDK path' >&2;exit 2;; esac
-free=$(df -B1 --output=avail /mnt/c | tail -n 1 | tr -d ' ')
+sdk=$(realpath -m "${1:-${INDAGO_WIRESHARK_SDK:-${XDG_CACHE_HOME:-$HOME/.cache}/indago/wireshark-sdk}}")
+case "$sdk" in /*/wireshark-sdk) ;; *) echo 'Use a dedicated absolute directory ending in wireshark-sdk' >&2;exit 2;; esac
+mkdir -p "$sdk"
+free=$(df -B1 --output=avail "$sdk" | tail -n 1 | tr -d ' ')
 ((free>21474836480+2147483648)) || { echo 'Insufficient disk reservation for source build' >&2;exit 1; }
 mkdir -p "$sdk/packages" "$sdk/root"
 packages=(libglib2.0-dev libgio-2.0-dev libglib2.0-dev-bin libglib2.0-0t64 libpcre2-dev libpcre2-8-0 libgcrypt20-dev libgcrypt20 libgpg-error-dev libgpg-error0 flex bison libc-ares-dev libcares2 libxml2-dev libxml2-16 libsysprof-capture-4-dev m4)

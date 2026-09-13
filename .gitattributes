@@ -1,2 +1,6 @@
 vendor/frida/linux/libfrida-core.a filter=lfs diff=lfs merge=lfs -text
 vendor/frida/windows/frida-core.lib filter=lfs diff=lfs merge=lfs -text
+
+# Linux/WSL scripts must remain executable text after a Windows checkout.
+tools/*.sh text eol=lf
+tests/*.sh text eol=lf

@@ -7,7 +7,7 @@ for(const dir of ['docs','kb'])walk(path.join(root,dir));
 for(const e of fs.readdirSync(root,{withFileTypes:true}))if(e.isFile()&&e.name.endsWith('.md'))files.push(path.join(root,e.name));
 const bad=[];
 for(const file of files)fs.readFileSync(file,'utf8').split(/\r?\n/).forEach((line,i)=>{
- if(/[A-Z]:[\\/]Users[\\/]|(?<!https?:\/\/[^ ]*)\/home\/[a-z0-9_.-]+\/|[A-Z]:[\\/]Documents and Settings[\\/]/i.test(line))bad.push(`${path.relative(root,file)}:${i+1}`);
+ if(/[A-Z]:[\\/]Users[\\/]|(?:^|[\s(`])\/home\/[a-z0-9_.-]+\/|\/Users\/[^/]+\/|[A-Z]:[\\/]Documents and Settings[\\/]|[A-Za-z0-9._%+-]+@flare-on\.(?:com|net)/i.test(line))bad.push(`${path.relative(root,file)}:${i+1}`);
 });
-if(bad.length){console.error('Machine-specific documentation paths:\n'+bad.join('\n'));process.exitCode=1;}
+if(bad.length){console.error('Documentation privacy/portability failures:\n'+bad.join('\n'));process.exitCode=1;}
 else console.log(`Public documentation portability passed (${files.length} files).`);
