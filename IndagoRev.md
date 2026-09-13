@@ -4,7 +4,7 @@
 
 IndagoRev will accept a program or a collection of related programs, investigate how they work, and answer questions about their behavior. It will combine established reverse-engineering tools with an AI agent that can navigate code, observe execution, write scripts, run experiments, and validate its findings.
 
-This document describes the planned system at a high level. The [full development plan](C:/Users/Jaden/Desktop/Projects/IndagoRev/kb/IndagoRev_Final_Development_Plan.md) contains the implementation details and milestones.
+This document describes the planned system at a high level. The [full development plan](kb/IndagoRev_Final_Development_Plan.md) contains the implementation details and milestones.
 
 ## Two ways to use it
 

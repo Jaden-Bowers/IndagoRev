@@ -1,0 +1,13 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
+const [exe,image]=process.argv.slice(2),root=fs.mkdtempSync(path.resolve('out/guest-lifecycle-'));let n=0;
+const native=p=>p.replace(/^([A-Za-z]):/,(_,d)=>'/mnt/'+d.toLowerCase()).replaceAll('\\','/');
+function call(op,r){const f=path.join(root,`r${++n}.json`);fs.writeFileSync(f,JSON.stringify(r));const p=spawnSync('wsl.exe',['--exec',exe,'--workspace',native(path.join(root,'state')),'guest',op,'--request',native(f)],{encoding:'utf8',timeout:60000,maxBuffer:4194304});assert.ifError(p.error);assert.equal(p.status,0,p.stdout+p.stderr);const result=JSON.parse(p.stdout);fs.writeFileSync(path.join(root,`o${n}.json`),JSON.stringify(result,null,2));return result;}
+function pin(p){const r=spawnSync('wsl.exe',['--exec','sha256sum',p],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);return {path:p,sha256:r.stdout.split(' ')[0]};}
+const spec={image:pin(image),qemu:pin('/usr/bin/qemu-system-x86_64'),qemu_img:pin('/usr/bin/qemu-img'),bios:pin('/usr/share/seabios/bios-256k.bin'),rom:pin('/usr/share/qemu/kvmvapic.bin'),machine:'pc-i440fx-10.2',accelerator:'kvm',trusted_guest:true};
+const profile=call('create',spec);
+const first=call('run',{profile:profile.id,actions:[{operation:'observe',duration_ms:600},{operation:'pause'},{operation:'snapshot'},{operation:'restore'},{operation:'registers'}]});assert.equal(first.status,'completed',JSON.stringify(first));assert(first.stopped_verified);assert(first.base_unchanged);assert(first.serial.bytes>0);assert.equal(first.events.find(e=>e.operation==='registers').debugger.status,'completed');
+const reset=call('reset',{profile:profile.id,previous:first.id,actions:[{operation:'observe',duration_ms:600}]});assert.equal(reset.status,'completed');assert(reset.cold_reset.fresh_overlay);assert(reset.cold_reset.boot_output_agreement);
+const tcg=call('create',{...spec,accelerator:'tcg'});const record=call('run',{profile:tcg.id,mode:'record',actions:[{operation:'observe',duration_ms:600}]});assert.equal(record.status,'completed',JSON.stringify(record));assert(record.replay_sha256);
+const replay=call('run',{profile:tcg.id,mode:'replay',previous:record.id,actions:[{operation:'observe',duration_ms:400}]});assert.equal(replay.status,'completed',JSON.stringify(replay));assert.equal(replay.serial.sha256,record.serial.sha256);
+const pruned=call('prune',{id:first.id});assert(pruned.receipt_retained);assert(pruned.removed_bytes>0);
+fs.writeFileSync(path.join(root,'summary.json'),JSON.stringify({passed:true,root,first,reset,record,replay,pruned},null,2));console.log(JSON.stringify({passed:true,root}));

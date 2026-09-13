@@ -1,5 +1,10 @@
 # Network API evidence: first implementation
 
+Historical first increment. Offline packet dissection and native stream references
+are now implemented; see [offline network](offline-network.md) and the
+[current capability contract](current-capabilities.md). Remaining joins and live
+capture limitations still apply. Absence statements below are historical.
+
 The bundled Frida `network` recipe now observes socket creation/acceptance,
 bind/listen/connect, send/receive, shutdown and close APIs where exported. It
 retains call IDs, native arguments/returns, bounded buffers and native sockaddr

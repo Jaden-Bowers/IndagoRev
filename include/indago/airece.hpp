@@ -10,6 +10,11 @@ struct NativeProcessOptions {
     fs::path cancel_file;
     fs::path stdin_file;
     fs::path working_directory;
+    bool clear_environment{};
+    // Opt-in OS per-process memory limit: address space on POSIX, committed
+    // memory on Windows. Not an aggregate process-tree or filesystem sandbox.
+    std::uint64_t process_memory_bytes{};
+    std::map<std::string,std::string> environment;
     std::function<bool()> should_cancel;
 };
 struct NativeProcessResult {

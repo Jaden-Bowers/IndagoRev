@@ -86,7 +86,7 @@ Only this model's saved defaults were changed:
   GPU offload and other load settings. No weights were downloaded or replaced.
 
 Saved defaults live in
-`C:/Users/Jaden/.lmstudio/.internal/user-concrete-model-default-config/huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF/Huihui-Qwen3.8-27B-abliterated-UD-IQ3_S.gguf.json`.
+`<LM_STUDIO_DATA>/model-default-config.json`.
 Original defaults and upstream template are preserved in
 `out/lmstudio-serving-backup-2026-09-07/`. Restore the original JSON to that
 model-specific defaults path and reload the same model at context 8192 to undo

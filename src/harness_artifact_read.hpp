@@ -8,12 +8,12 @@
 
 namespace indago {
 inline wb::J harness_artifact_page(const ProjectStore &store, const wb::J &component,
-                                   const wb::J &request) {
+                                   const wb::J &request, std::size_t maximum = 1024) {
   using namespace wb;
   keys(request, {"project", "offset", "address", "max_bytes", "raw_sha256"});
   if (request.contains("address") && request.contains("offset"))
     throw std::runtime_error("Select a virtual address or a file offset, not both");
-  const auto length = bound(request, "max_bytes", 256, 1024);
+  const auto length = bound(request, "max_bytes", 256, maximum);
   if (!length) throw std::runtime_error("Artifact page must request at least one byte");
   const auto target = store.target(request.at("project").get<std::string>(),
                                    component.at("target_id").get<std::string>(), true);

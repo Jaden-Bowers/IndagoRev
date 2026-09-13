@@ -54,11 +54,111 @@ Process.attachThreadObserver({
   onRemoved(t) { emit({kind:'thread_exited',native_thread_id:t.id,instance:threads.get(t.id)}); threads.delete(t.id); }
 });
 const win=Process.platform==='windows';
+// Bounded input provenance. Only completed synchronous stdin reads and observed
+// copies are admitted. Re-check the bytes at each use; arbitrary writes are not
+// modeled and a changed range is never silently treated as an input alias.
+const inputSpans=[];let stdinOffset=0,stdinInFlight=0,stdinOrderKnown=true;
+let stdinHandle=null;
+if(recipe==='input'&&win)try {
+  const address=Module.findGlobalExportByName('GetStdHandle');
+  if(address)stdinHandle=new NativeFunction(address,'pointer',['int'])(-10);
+}catch(e){}
+function inputSpan(address,count) {
+  if(count<=0||count>256)return null;
+  for(let i=inputSpans.length-1;i>=0;--i){const s=inputSpans[i];
+    if(address.compare(s.address)>=0&&address.add(count).compare(s.address.add(s.hex.length/2))<=0){
+      const delta=Number(address.sub(s.address).toString());
+      if(hexBytes(address,count)!==s.hex.slice(delta*2,(delta+count)*2))return null;
+      return {source:'stdin',offset:s.offset+delta,size:count,input_id:s.id,copy_chain:s.chain.slice()};}}
+  return null;
+}
+function rememberInput(address,hex,offset,id,chain) {
+  for(let i=inputSpans.length-1;i>=0;--i)if(address.compare(inputSpans[i].address.add(inputSpans[i].hex.length/2))<0&&address.add(hex.length/2).compare(inputSpans[i].address)>0)inputSpans.splice(i,1);
+  if(inputSpans.length>=64)inputSpans.shift();inputSpans.push({address,hex,offset,id,chain});
+}
+function inputEnter(call,api,args) {
+  if(recipe!=='input')return;
+  if((api==='read'&&args[0].toInt32()===0)||(api==='ReadFile'&&stdinHandle&&args[0].equals(stdinHandle)&&args[4].isNull())) {
+    call.inputRelevant=true;call.stdinRead=true;if(++stdinInFlight>1){stdinOrderKnown=false;inputSpans.length=0;}
+  }
+  if(api==='memcpy'||api==='memmove') {
+    const size=Number(args[2].toString());if(Number.isSafeInteger(size)&&size>0&&size<=256){call.inputCopy=inputSpan(args[1],size);if(call.inputCopy){call.inputRelevant=true;call.copyHex=hexBytes(args[1],size);}}return;
+  }
+  if(api!=='memcmp')return;
+  const count=Number(args[2].toString());if(!Number.isSafeInteger(count)||count<1||count>256)return;
+  const left=inputSpan(args[0],count),right=inputSpan(args[1],count);
+  if(Boolean(left)===Boolean(right))return;
+  call.inputRelevant=true;
+  call.inputComparison={kind:'input_comparison',api,call_id:call.call,caller:call.returnAddress.toString(),
+    input:left||right,input_side:left?'left':'right',input_hex:hexBytes(left?args[0]:args[1],count),
+    expected_hex:hexBytes(left?args[1]:args[0],count),address:(left?args[0]:args[1]).toString(),
+    mapping:'completed stdin read, observed copies, byte equality checked at comparison',
+    limitation:'selected API coverage; not a whole-process write or control-dependence proof'};
+}
+function inputLeave(call,api,retval) {
+  if(recipe!=='input')return;
+  const a=call.args;
+  if(call.stdinRead) {
+    --stdinInFlight;
+    const count=api==='read'?retval.toInt32():(!retval.isNull()&&!a[3].isNull()?a[3].readU32():0);
+    if(count>0&&count<=a[2].toUInt32()) {
+      const offset=stdinOffset;stdinOffset+=count;
+      if(count<=256&&stdinOrderKnown){const hex=hexBytes(a[1],count),id=token('input_');rememberInput(a[1],hex,offset,id,[]);
+        emit({kind:'input_delivery',input_id:id,source:'stdin',offset,address:a[1].toString(),hex,call_id:call.call,api,complete:true});}
+    }
+  }
+  if(call.inputCopy&&retval.equals(a[0])&&hexBytes(a[0],call.copyHex.length/2)===call.copyHex) {
+    const s=call.inputCopy;if(s.copy_chain.length<8)rememberInput(a[0],call.copyHex,s.offset,s.input_id,s.copy_chain.concat(call.call));
+  }
+  if(call.inputComparison){
+    call.inputComparison.return_value=retval.toInt32();
+    call.inputComparison.arch=Process.arch==='ia32'?'x86':Process.arch==='x64'?'x64':'unsupported';
+    call.inputComparison.caller_code={address:call.returnAddress.toString(),hex:hexBytes(call.returnAddress,64)};
+    call.inputComparison.registers={};
+    const names=Process.arch==='ia32'?['eax','ebx','ecx','edx','esi','edi','ebp','esp']:['rax','rbx','rcx','rdx','rsi','rdi','rbp','rsp','r8','r9','r10','r11','r12','r13','r14','r15'];
+    for(const name of names)if(call.context[name]!==undefined)call.inputComparison.registers[name]=call.context[name].toString();
+    call.inputComparison.memory=[];
+    try {
+      const m=Process.findModuleByAddress(call.returnAddress);
+      if(m)for(const range of m.enumerateRanges('rw-').slice(0,2)) {
+        const size=Math.min(range.size,4096);call.inputComparison.memory.push({address:range.base.toString(),hex:hexBytes(range.base,size)});
+      }
+    }catch(e){call.inputComparison.memory_status='partial';}
+    emit(call.inputComparison);
+  }
+}
 const names=recipe==='config'?(win?['RegOpenKeyExW','RegQueryValueExW','GetEnvironmentVariableW']:['getenv','fopen','access','stat']):recipe==='network'?(win?['socket','accept','bind','listen','connect','send','recv','sendto','recvfrom','shutdown','closesocket','WSASend','WSARecv']:['socket','accept','accept4','bind','listen','connect','send','recv','sendto','recvfrom','shutdown','close']):recipe==='io'
   ? (win?['CreateFileW','ReadFile','WriteFile','CloseHandle','connect','send','recv']:['open','openat','read','write','close','connect','send','recv'])
-  : recipe==='code' ? (win?['VirtualAlloc','VirtualProtect']:['mmap','mprotect']) : [];
+  : recipe==='code' ? (win?['VirtualAlloc','VirtualProtect']:['mmap','mprotect'])
+  : recipe==='input' ? (win?['ReadFile','memcpy','memmove','memcmp']:['read','memcpy','memmove','memcmp']) : [];
 const installed=new Map();
+function installManaged(module) {
+  if(recipe!=='managed'||!module)return;
+  if(/(?:coreclr|clr\.dll|mono)/i.test(module.name))emit({kind:'managed_runtime_module',runtime_module:module.name,base:module.base.toString(),coverage:'Mono exported invoke/JIT hooks only; CLR/CoreCLR EventPipe not implemented'});
+  if(!/mono/i.test(module.name))return;
+  const exported=name=>module.findExportByName(name);
+  for(const api of ['mono_runtime_invoke','mono_compile_method'])try {
+    const address=exported(api);if(!address)continue;
+    const key=api+'@'+address;if(installed.has(key))continue;
+    const tokenAddress=exported('mono_method_get_token'),nameAddress=exported('mono_method_get_name');
+    const getToken=tokenAddress?new NativeFunction(tokenAddress,'uint32',['pointer']):null;
+    const getName=nameAddress?new NativeFunction(nameAddress,'pointer',['pointer']):null;
+    const listener=Interceptor.attach(address,{
+      onEnter(args){this.active=!limited;if(!this.active)return;this.call=token('managed_');this.method=args[0];this.exception=api==='mono_runtime_invoke'?args[3]:null;
+        const record={kind:'managed_method_enter',api,call_id:this.call,method_handle:this.method.toString(),runtime_module:module.name,identity_scope:'runtime session; metadata token alone does not identify an assembly'};
+        try{if(getToken)record.metadata_token='0x'+getToken(this.method).toString(16);if(getName)record.method_name=getName(this.method).readUtf8String(256);}catch(e){record.identity_partial=true;}
+        emit(record);
+      },
+      onLeave(value){if(!this.active||limited)return;const record={kind:api==='mono_compile_method'?'managed_jit_result':'managed_method_leave',api,call_id:this.call,method_handle:this.method.toString(),result_handle:value.toString(),result_contents_collected:false};
+        if(api==='mono_runtime_invoke'&&this.exception&&!this.exception.isNull())try{record.exception_observed=!this.exception.readPointer().isNull();}catch(e){record.exception_status='unavailable';}
+        emit(record);
+      }
+    });installed.set(key,{address,listener});emit({kind:'hook_installed',api,address:address.toString()});
+  }catch(e){emit({kind:'hook_unavailable',api,diagnostic:String(e).slice(0,256)});}
+}
 function installHooks(module) { for(const api of names) {
+  if(recipe==='input'&&win&&api==='ReadFile'&&module&&module.name.toLowerCase()!=='kernelbase.dll')continue;
+  if(recipe==='input'&&win&&api==='ReadFile'&&!module&&Array.from(installed.keys()).some(k=>k.startsWith('ReadFile@')))continue;
   try {
     let address=module?module.findExportByName(api):Module.findGlobalExportByName(api);
     if(address===null && win&&!module) for(const m of Process.enumerateModules()) { address=m.findExportByName(api); if(address!==null) break; }
@@ -99,10 +199,12 @@ function installHooks(module) { for(const api of names) {
             }
           }
         } catch(e) { event.argument_read_status='unavailable'; }
+        try{inputEnter(this,api,args);}catch(e){event.input_mapping_status='unavailable';}
+        if(recipe==='input'&&!this.inputRelevant)return;
         emit(event);
       },
       onLeave(retval) {
-        if(!this.active||limited) return;
+        if(!this.active||limited||(recipe==='input'&&!this.inputRelevant)) return;
         const event={kind:'api_leave',api,call_id:this.call,return_value:retval.toString(),
           thread_instance:threads.get(this.threadId),duration_ms:Date.now()-this.start,
           errno:win?undefined:this.errno,last_error:win?this.lastError:undefined};
@@ -144,6 +246,7 @@ function installHooks(module) { for(const api of names) {
           catch(e){event.return_read_status='unavailable';}
         }
         emit(event);
+        try{inputLeave(this,api,retval);}catch(e){emit({kind:'input_mapping_unavailable',api,diagnostic:String(e).slice(0,256)});}
         if(recipe!=='code') return;
         const a=this.args;
         if(api==='VirtualProtect'&&!retval.isNull()&&(a[2].toUInt32()&0xf0)) capture(a[0],a[1].toUInt32(),api);
@@ -161,7 +264,7 @@ function installHooks(module) { for(const api of names) {
 Process.attachModuleObserver({
   onAdded(m) { const instance=token('module_'); modules.set(m.base.toString(),instance);
     emit({kind:'module_loaded',instance,base:m.base.toString(),size:m.size,path:m.path.slice(0,2048)});
-    installHooks(m); },
+    installHooks(m); installManaged(m); },
   onRemoved(m) { emit({kind:'module_unloaded',instance:modules.get(m.base.toString()),base:m.base.toString()}); modules.delete(m.base.toString());
     for(const [key,hook] of installed)if(hook.address.compare(m.base)>=0&&hook.address.compare(m.base.add(m.size))<0){try{hook.listener.detach();}catch(e){}installed.delete(key);} }
 });

@@ -339,6 +339,8 @@ J bundles(const ProjectStore &store, const std::string &op, const J &r) {
                   "portable authority.";
               row["record"] = record.dump();
             }
+            record["envelope"]["analysis_helpers"] = false;
+            record["envelope"].erase("runtime_execution");
             if (record.at("envelope").value("workbench_mutations", false)) {
               record["envelope"]["workbench_mutations"] = false;
               record["envelope"]["profile"] = "static-read-only-v1";

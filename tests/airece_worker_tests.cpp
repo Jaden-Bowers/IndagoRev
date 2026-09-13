@@ -4,6 +4,10 @@
 #include <iostream>
 #include <thread>
 #include <atomic>
+#include <cstdlib>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 // A deterministic ELF64 image with the same code as control-flow.pe64.
 indago::fs::path make_elf() {
@@ -27,6 +31,20 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "--version") { std::cout << "fixture-worker 1.0\n"; return 0; }
     if (argc > 1 && std::string(argv[1]) == "fn") { std::cout << "invalid JSON"; return 0; }
     if (argc > 1 && std::string(argv[1]) == "--child") {
+        if (argc > 2 && std::string(argv[2]) == "memory") {
+            void *(*volatile allocate)(std::size_t) = &std::malloc;
+            void *allocation = allocate(1024ULL * 1024 * 1024);
+            if (allocation) { std::free(allocation); return 11; }
+            std::cout << "allocation-denied"; return 0;
+        }
+#ifndef _WIN32
+        if(argc>2 && (std::string(argv[2])=="brief-pipe" || std::string(argv[2])=="held-pipe")) {
+            const auto delay=std::string(argv[2])=="brief-pipe"?5:300;
+            const auto child=fork();if(child<0)return 2;
+            if(child==0){std::this_thread::sleep_for(std::chrono::milliseconds(delay));_exit(0);}
+            return 0;
+        }
+#endif
         if (argc > 2 && std::string(argv[2]) == "sleep") {
             std::this_thread::sleep_for(std::chrono::seconds(10)); return 0;
         }
@@ -45,6 +63,16 @@ int main(int argc, char** argv) {
         require(result.exit_code == 0 && result.output == "space argument\r\nquote\"slash\\\r\n$(literal)&\r\n"
             || result.exit_code == 0 && result.output == "space argument\nquote\"slash\\\n$(literal)&\n", "Literal argument roundtrip failed");
         options.max_output_bytes = 1024;
+        options.process_memory_bytes = indago::fs::file_size(self) + 256ULL * 1024 * 1024;
+        result = indago::run_native_process(self, {"--child", "memory"}, options);
+        require(result.exit_code == 0 && result.output == "allocation-denied", "Worker memory limit failed");
+        options.process_memory_bytes = 0;
+#ifndef _WIN32
+        result=indago::run_native_process(self,{"--child","brief-pipe"},options);
+        require(result.exit_code==0&&result.output_complete,"Bounded reaper EOF grace failed");
+        result=indago::run_native_process(self,{"--child","held-pipe"},options);
+        require(result.exit_code==0&&!result.output_complete,"Held descendant pipe promoted to complete");
+#endif
         result = indago::run_native_process(self, {"--child", "flood"}, options);
         require(result.exit_code == 3 && result.truncated && result.output.size() == 1024, "Output bounds or exit preservation failed");
         options.wall_time_ms = 25;

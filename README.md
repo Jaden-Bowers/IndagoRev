@@ -7,7 +7,8 @@ and a model-assisted investigation harness. XAIR, XAIR_CFG, XAIR_SYM, and AIRECE
 are linked into the native executable. Backend evidence stays separate; a
 recovered string is not automatically a verified solve.
 
-**Development software. Target execution is not sandboxed.**
+**Development software. Host target execution is not sandboxed.** Contained
+helpers and guests have separate, limited execution profiles.
 
 ## Clone and build
 
@@ -70,9 +71,17 @@ Inference is optional and requires your own configured provider.
 
 ## Documentation
 
+- [Current capability contract and build profiles](docs/current-capabilities.md)
+
+- [Bounded analysis helpers](docs/analysis-helpers.md)
+- [Autonomous runtime experiments and remaining gaps](docs/autonomous-experiments.md)
+- [Input solving and runtime-code recovery](docs/input-solving-and-runtime-recovery.md)
+
 - [Build profiles and dependencies](docs/building.md)
 - [Static analysis](docs/static-stage.md) · [Runtime analysis](docs/runtime-stage.md)
+- [Managed analysis](docs/managed-analysis.md) · [Catalogue coverage and adapter gaps](docs/catalogue-runtime-coverage.md)
 - [Harness](docs/harness.md) · [Built-in model loop](docs/builtin-harness.md)
+- [Reconstruction, service contracts and evaluation](docs/reconstruction-services-evaluation.md) · [Bounded QEMU guests](docs/qemu-guests.md)
 - [OpenRouter and general investigations](docs/general-investigation.md)
 - [Proof boundaries](docs/solve-verification.md) · [Benchmark](docs/flare-on-benchmark.md)
 - [Repository layout](docs/repository-layout.md) · [Development plan](kb/IndagoRev_Final_Development_Plan.md)

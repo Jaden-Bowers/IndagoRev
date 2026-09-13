@@ -5,6 +5,9 @@
 #include "indago/replay.hpp"
 #include "indago/workbench.hpp"
 #include "indago/harness.hpp"
+#include "analysis_helper.hpp"
+#include "research_workflow.hpp"
+#include "guest.hpp"
 #include "indago/lief.hpp"
 #include "indago/wireshark.hpp"
 #include "benchmark.hpp"
@@ -78,7 +81,10 @@ Json make_request(const Args& args) {
 }
 void usage() {
     std::cout << "IndagoRev native static and dynamic workbench\n"
-      "  indago benchmark freeze|prepare|grade|score --request FILE (operator-side, not harness tools)\n"
+      "  indago benchmark freeze|prepare|coverage|grade|score --request FILE (operator-side, not harness tools)\n"
+      "  indago guest capabilities|create|run|reset|show|list|cancel|reconcile|export|prune --request FILE\n"
+      "  indago evaluation matrix|record|compare|recipe|show --request FILE (operator-side)\n"
+      "  indago target route --project NAME --id TARGET_ID (bounded format hints, no execution)\n"
       "  indago runtime capabilities|payloads\n"
       "  indago runtime launch --project NAME --file FILE [--request runtime.json]\n"
       "  indago runtime io-run --request trusted-io-run.json\n"
@@ -126,6 +132,7 @@ void usage() {
 }
 int indago_airece_main(int argc,char** argv);
 int main(int argc,char** argv) {
+    if(argc>1 && (std::string_view(argv[1])=="__helper-stage" || std::string_view(argv[1])=="__helper-exec")) return indago::helper_worker(argc,argv);
 #if INDAGO_HAS_XAIR
     if(argc>1 && std::string_view(argv[1])=="__airece") return indago_airece_main(argc-1,argv+1);
 #endif
@@ -155,6 +162,11 @@ int main(int argc,char** argv) {
         Json response;int code=0;
         if(cmd=="version") response={{"schema","indago.version.v2"},{"version",INDAGO_VERSION},{"implementation","C++20"},{"primary_executable","indago"},{"integrated_components",{"AIRECE","XAIR","XAIR_CFG","XAIR_SYM","Z3"}},{"external_workers",INDAGO_HAS_GHIDRA?Json::array():Json::array({"Ghidra/JDK"})},{"ghidra_bundled",INDAGO_HAS_GHIDRA!=0},{"ilspy_bundled",INDAGO_HAS_ILSPY!=0},{"enrichment_bundled",INDAGO_HAS_ENRICHMENT!=0}};
         else if(cmd=="capabilities") {response=service.capabilities();response["runtime"]=indago::runtime_capabilities();response["harness"]=indago::harness_capabilities();}
+        else if(cmd=="guest") {
+            response=indago::guest_action(store,sub,args.get("request").empty()?Json::object():read_json(args.get("request")));
+            if(sub=="run"||sub=="reset"){const auto status=response.value("status",std::string("failed"));code=status=="capability_blocked"?3:indago::result_exit_code(status);}
+        }
+        else if(cmd=="evaluation") response=indago::evaluation_action(store,sub,read_json(args.get("request")));
         else if(cmd=="benchmark") {
             const auto r=read_json(args.get("request"));
             response=sub=="certify"?indago::harness_certify(service,r):indago::benchmark::action(sub,r);
@@ -202,6 +214,7 @@ int main(int argc,char** argv) {
         else if(cmd=="project"&&sub=="create"){auto result=store.create_project(args.get("name"));response=Json::parse(result.json);}
         else if(cmd=="project"&&sub=="show") response=store.project_info(args.get("project"));
         else if(cmd=="target"&&sub=="import") {auto target=store.import_target(args.get("project"),args.get("file"));response={{"schema","indago.target.v1"},{"id",target.id},{"artifact_sha256",target.sha256},{"name",target.display_name},{"size",target.size}};}
+        else if(cmd=="target"&&sub=="route") response=indago::artifact_route(store.target(args.get("project"),args.get("id")));
         else if(cmd=="functions") response=store.functions(args.get("project"),args.get("artifact"),args.number("offset",0),args.number("limit",100));
         else if(cmd=="function"&&sub=="show") response=store.function_views(args.get("project"),args.get("id"),args.number("offset",0),args.number("limit",100));
         else if(cmd=="evidence"&&(sub=="list"||sub=="show")) response=store.evidence(args.get("project"),sub=="show"?args.get("id"):"",args.number("offset",0),args.number("limit",100));

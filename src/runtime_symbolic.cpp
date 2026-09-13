@@ -1,7 +1,7 @@
 #include "indago/runtime.hpp"
 #include <array>
-#include <set>
 #include <map>
+#include <set>
 #include <thread>
 #if INDAGO_HAS_XAIR
 #include <xair/xair_frontend.h>
@@ -50,8 +50,33 @@ struct Callback {
   xair_lift_result *lift;
   J results = J::array();
   J symbols = J::array();
+  J input_ranges = J::array();
   std::string error;
-  const std::vector<xair_lift_result>* path{};
+  const std::vector<xair_lift_result> *path{};
+  J dependencies(xair_sym_expr_id root) {
+    std::set<xair_sym_expr_id> seen;
+    std::vector<xair_sym_expr_id> pending{root};
+    J sources = J::array();
+    while (!pending.empty() && seen.size() < 4096) {
+      const auto id = pending.back();
+      pending.pop_back();
+      if (!seen.insert(id).second)
+        continue;
+      xair_sym_expr_view view{};
+      need(xair_sym_expr_get(r->context, id, &view));
+      if (view.kind == XAIR_SYM_EXPR_SYMBOL) {
+        for (const auto &symbol : symbols)
+          if (symbol.at("expression_id") == id)
+            sources.push_back(symbol);
+      } else
+        for (unsigned i = 0; i < view.arg_count; ++i)
+          pending.push_back(view.args[i]);
+    }
+    return {{"sources", sources},
+            {"complete", pending.empty()},
+            {"scope", "native expression dependence, not whole-process taint "
+                      "or acceptance proof"}};
+  }
   J expression(xair_sym_expr_id id, unsigned depth = 0) {
     if (depth > 8)
       return {{"id", id}, {"truncated", true}};
@@ -73,11 +98,24 @@ struct Callback {
   }
   static xair_sym_status terminal(xair_sym_state *state, void *opaque) {
     auto &c = *static_cast<Callback *>(opaque);
-    if(xair_sym_state_block(state)!=c.lift->block)return XAIR_SYM_OK;
+    if (xair_sym_state_block(state) != c.lift->block)
+      return XAIR_SYM_OK;
     try {
       J result{{"outputs", J::array()}};
-      result["selected_path_conditions"]=J::array();
-      if(c.path)for(size_t i=0;i+1<c.path->size();++i){const auto &block=(*c.path)[i];if(block.branch_condition!=XAIR_INVALID_ID){xair_sym_expr_id expr{};if(xair_sym_state_get_value(state,block.branch_condition,&expr)==XAIR_SYM_OK)result["selected_path_conditions"].push_back({{"address",hex_address(block.start)},{"condition",c.expression(expr)},{"taken",(*c.path)[i+1].start==block.target}});}}
+      result["selected_path_conditions"] = J::array();
+      if (c.path)
+        for (size_t i = 0; i + 1 < c.path->size(); ++i) {
+          const auto &block = (*c.path)[i];
+          if (block.branch_condition != XAIR_INVALID_ID) {
+            xair_sym_expr_id expr{};
+            if (xair_sym_state_get_value(state, block.branch_condition,
+                                         &expr) == XAIR_SYM_OK)
+              result["selected_path_conditions"].push_back(
+                  {{"address", hex_address(block.start)},
+                   {"condition", c.expression(expr)},
+                   {"taken", (*c.path)[i + 1].start == block.target}});
+          }
+        }
       for (std::size_t i = 0; i < c.lift->output_reg_count; ++i) {
         auto out = c.lift->output_regs[i];
         xair_sym_expr_id expr{};
@@ -97,6 +135,8 @@ struct Callback {
         need(xair_sym_state_get_value(state, c.lift->branch_condition,
                                       &condition));
         result["path_condition"] = c.expression(condition);
+        result["input_flow"] = c.dependencies(condition);
+        result["branch_block_start"] = hex_address(c.lift->start);
         xair_sym_taint_id condition_taint{};
         auto taint_status = xair_sym_state_get_taint(
             state, c.lift->branch_condition, &condition_taint);
@@ -136,6 +176,58 @@ struct Callback {
                 branch["models"].push_back({{"input", symbol["input"]},
                                             {"value", hex_address(value)}});
             }
+          branch["input_candidates"] = J::array();
+          std::map<std::string, uint8_t> model_bytes;
+          if (status == XAIR_SYM_OK && sat == XAIR_SYM_SAT) {
+            std::vector<xair_sym_expr_id> expressions;
+            std::vector<std::string> names;
+            for (const auto &symbol : c.symbols)
+              if (symbol.at("input").get<std::string>().starts_with(
+                      "memory_")) {
+                names.push_back(symbol.at("input"));
+                expressions.push_back(
+                    symbol.at("expression_id").get<xair_sym_expr_id>());
+              }
+            std::vector<uint8_t> values(expressions.size());
+            if (!expressions.empty() &&
+                xair_sym_model_bytes(branch_state, expressions.data(),
+                                     expressions.size(),
+                                     values.data()) == XAIR_SYM_OK)
+              for (size_t i = 0; i < names.size(); ++i)
+                model_bytes[names[i]] = values[i];
+          }
+          if (status == XAIR_SYM_OK && sat == XAIR_SYM_SAT)
+            for (const auto &range : c.input_ranges) {
+              std::string encoded;
+              bool complete = true;
+              const char *digits = "0123456789abcdef";
+              auto base = runtime_number(range.at("address")),
+                   count = runtime_number(range.at("size"));
+              for (uint64_t i = 0; i < count; ++i) {
+                const auto name = "memory_" + hex_address(base + i);
+                bool found = false;
+                if (model_bytes.contains(name)) {
+                  const auto value = model_bytes.at(name);
+                  encoded += digits[(value >> 4) & 15];
+                  encoded += digits[value & 15];
+                  found = true;
+                }
+                if (!found) {
+                  complete = false;
+                  break;
+                }
+              }
+              branch["input_candidates"].push_back(
+                  {{"source", range.at("source")},
+                   {"mapping", range},
+                   {"offset", range.value("offset", J(0))},
+                   {"memory_address", range.at("address")},
+                   {"hex", complete ? encoded : std::string{}},
+                   {"complete", complete},
+                   {"model_consistency", "single native memory-model batch"},
+                   {"validation", "solver candidate only; replay against "
+                                  "original input channel required"}});
+            }
           result["branches"].push_back(branch);
         }
       }
@@ -164,14 +256,19 @@ RuntimeJson runtime_symbolic(const RuntimeJson &observation,
   auto timeout = runtime_number(request.value("timeout_ms", J(1000)));
   if (!timeout || timeout > 10000)
     throw std::runtime_error("symbolic timeout must be 1..10000 ms");
-  auto path=request.value("path",J::array());
-  if(!path.is_array()||path.size()>16)throw std::runtime_error("path must contain at most 16 block addresses");
-  const auto &code_record=path.empty()?capture.at("instruction_bytes"):capture.at("code_bytes");
+  auto path = request.value("path", J::array());
+  if (!path.is_array() || path.size() > 16)
+    throw std::runtime_error("path must contain at most 16 block addresses");
+  const auto &code_record =
+      path.empty() ? capture.at("instruction_bytes") : capture.at("code_bytes");
   auto code = bytes(code_record.at("hex"));
   if (code.empty())
     throw std::runtime_error("capture contains no instruction bytes");
-  auto address = runtime_number(capture.value("pc_location", capture.at("location")).at("runtime_address"));
-  if(!path.empty()&&runtime_number(path[0])!=address)throw std::runtime_error("selected path must start at captured PC");
+  auto address =
+      runtime_number(capture.value("pc_location", capture.at("location"))
+                         .at("runtime_address"));
+  if (!path.empty() && runtime_number(path[0]) != address)
+    throw std::runtime_error("selected path must start at captured PC");
   auto arch = capture["registers"]["arch"] == "x86" ? XAIR_ARCH_X86_32
                                                     : XAIR_ARCH_X86_64;
   Resources r;
@@ -186,18 +283,35 @@ RuntimeJson runtime_symbolic(const RuntimeJson &observation,
       xair_cancel_token_request(r.cancel);
   });
   xair_image image{};
-  std::vector<std::pair<uint64_t,std::vector<uint8_t>>> regions;
-  regions.emplace_back(runtime_number(code_record.at("address")),std::move(code));
-  size_t total_code=regions.front().second.size();
-  if(!path.empty())for(const auto &region:capture.value("code_regions",J::array())){
-    if(!capture.contains("capture_group_id")||region.value("capture_group_id",J{})!=capture["capture_group_id"])throw std::runtime_error("symbolic regions must share a capture group");
-    auto data=bytes(region.at("code_bytes").at("hex"));total_code+=data.size();
-    if(regions.size()>=17||total_code>65536)throw std::runtime_error("symbolic code region budget exceeded");
-    auto start=runtime_number(region.at("code_bytes").at("address"));if(data.empty()||start>UINT64_MAX-data.size())throw std::runtime_error("invalid symbolic code region");
-    for(auto &[base,existing]:regions)if(start<base+existing.size()&&base<start+data.size())throw std::runtime_error("overlapping symbolic code regions");
-    regions.emplace_back(start,std::move(data));
-  }
-  auto select_image=[&](uint64_t pc){for(auto &[base,data]:regions)if(pc>=base&&pc-base<data.size()){need(xair_image_init(&image,data.data(),data.size(),base));return;}throw std::runtime_error("selected path leaves captured code regions");};
+  std::vector<std::pair<uint64_t, std::vector<uint8_t>>> regions;
+  regions.emplace_back(runtime_number(code_record.at("address")),
+                       std::move(code));
+  size_t total_code = regions.front().second.size();
+  if (!path.empty())
+    for (const auto &region : capture.value("code_regions", J::array())) {
+      if (!capture.contains("capture_group_id") ||
+          region.value("capture_group_id", J{}) != capture["capture_group_id"])
+        throw std::runtime_error("symbolic regions must share a capture group");
+      auto data = bytes(region.at("code_bytes").at("hex"));
+      total_code += data.size();
+      if (regions.size() >= 17 || total_code > 65536)
+        throw std::runtime_error("symbolic code region budget exceeded");
+      auto start = runtime_number(region.at("code_bytes").at("address"));
+      if (data.empty() || start > UINT64_MAX - data.size())
+        throw std::runtime_error("invalid symbolic code region");
+      for (auto &[base, existing] : regions)
+        if (start < base + existing.size() && base < start + data.size())
+          throw std::runtime_error("overlapping symbolic code regions");
+      regions.emplace_back(start, std::move(data));
+    }
+  auto select_image = [&](uint64_t pc) {
+    for (auto &[base, data] : regions)
+      if (pc >= base && pc - base < data.size()) {
+        need(xair_image_init(&image, data.data(), data.size(), base));
+        return;
+      }
+    throw std::runtime_error("selected path leaves captured code regions");
+  };
   select_image(address);
   xair_lift_options options{};
   xair_analysis_options_init(&options.analysis);
@@ -241,35 +355,138 @@ RuntimeJson runtime_symbolic(const RuntimeJson &observation,
     return out;
   }
   std::vector<xair_lift_result> blocks{lift};
-  for(size_t i=1;i<path.size();++i){xair_lift_result next{};options.address=runtime_number(path[i]);std::string name="captured_path_"+std::to_string(i);options.block_name=name.c_str();
+  for (size_t i = 1; i < path.size(); ++i) {
+    xair_lift_result next{};
+    options.address = runtime_number(path[i]);
+    std::string name = "captured_path_" + std::to_string(i);
+    options.block_name = name.c_str();
     select_image(options.address);
-    auto status=xair_lift_basic_block_ex(r.module,&image,&options,&next,&native,&diagnostic);
-    if(status!=XAIR_OK)throw std::runtime_error("selected path leaves captured/liftable code");
+    auto status = xair_lift_basic_block_ex(r.module, &image, &options, &next,
+                                           &native, &diagnostic);
+    if (status != XAIR_OK)
+      throw std::runtime_error("selected path leaves captured/liftable code");
     blocks.push_back(next);
   }
-  if(blocks.size()>1) {
+  if (blocks.size() > 1) {
     // Bind backend-native register/flag SSA parameters across a caller-selected
     // path. The lifter and executor retain all instruction/memory semantics.
-    std::map<xair_x86_reg,unsigned> registers;std::set<unsigned> flags;
-    for(const auto &b:blocks){if(b.input_vector_count||b.output_vector_count)throw std::runtime_error("vector path binding unavailable");for(size_t i=0;i<b.input_reg_count;++i)registers[b.input_regs[i].reg]=xair_value_type(r.module,b.input_regs[i].value).bits;for(size_t i=0;i<b.input_flag_count;++i)flags.insert(b.input_flags[i].bit);}
-    for(auto &b:blocks){
-      need(xair_block_reopen(r.module,b.block));
-      for(auto [reg,bits]:registers){bool found=false;for(size_t i=0;i<b.input_reg_count;++i)if(b.input_regs[i].reg==reg)found=true;if(!found){if(b.input_reg_count>=XAIR_LIFT_MAX_REG_OUTPUTS)throw std::runtime_error("path register budget");xair_value_id v{};need(xair_block_add_param(r.module,b.block,xair_type_i(bits),xair_x86_reg_name(reg),&v));b.input_regs[b.input_reg_count++]={reg,v};}}
-      for(auto flag:flags){bool found=false;for(size_t i=0;i<b.input_flag_count;++i)if(b.input_flags[i].bit==flag)found=true;if(!found){xair_value_id v{};need(xair_block_add_param(r.module,b.block,xair_type_i(1),"carried_flag",&v));b.input_flags[b.input_flag_count++]={static_cast<uint8_t>(flag),v};}}
-      if(b.memory_in==XAIR_INVALID_ID){need(xair_block_add_param(r.module,b.block,xair_type_mem(0,arch==XAIR_ARCH_X86_32?32:64),"carried_memory",&b.memory_in));b.memory_out=b.memory_in;}
+    std::map<xair_x86_reg, unsigned> registers;
+    std::set<unsigned> flags;
+    for (const auto &b : blocks) {
+      if (b.input_vector_count || b.output_vector_count)
+        throw std::runtime_error("vector path binding unavailable");
+      for (size_t i = 0; i < b.input_reg_count; ++i)
+        registers[b.input_regs[i].reg] =
+            xair_value_type(r.module, b.input_regs[i].value).bits;
+      for (size_t i = 0; i < b.input_flag_count; ++i)
+        flags.insert(b.input_flags[i].bit);
     }
-    xair_block_id off_path{};need(xair_block_create(r.module,"outside_selected_path",&off_path));need(xair_set_return(r.module,off_path,nullptr,0));
-    need(xair_set_return(r.module,blocks.back().block,blocks.back().return_values,blocks.back().return_count));
-    for(size_t index=0;index+1<blocks.size();++index){auto &b=blocks[index];auto &next=blocks[index+1];std::map<xair_value_id,xair_value_id> bindings;
-      for(size_t n=0;n<next.input_reg_count;++n){auto reg=next.input_regs[n].reg;xair_value_id value=XAIR_INVALID_ID;for(size_t i=0;i<b.input_reg_count;++i)if(b.input_regs[i].reg==reg)value=b.input_regs[i].value;for(size_t i=0;i<b.output_reg_count;++i)if(b.output_regs[i].reg==reg)value=b.output_regs[i].value;bindings[next.input_regs[n].value]=value;}
-      for(size_t n=0;n<next.input_flag_count;++n){auto flag=next.input_flags[n].bit;xair_value_id value=XAIR_INVALID_ID;for(size_t i=0;i<b.input_flag_count;++i)if(b.input_flags[i].bit==flag)value=b.input_flags[i].value;for(size_t i=0;i<b.output_flag_count;++i)if(b.output_flags[i].bit==flag)value=b.output_flags[i].value;bindings[next.input_flags[n].value]=value;}
-      bindings[next.memory_in]=b.memory_out;std::vector<xair_value_id> args;
-      for(size_t i=0;i<xair_block_param_count(r.module,next.block);++i){xair_value_id parameter{};need(xair_block_param_value(r.module,next.block,i,&parameter));if(!bindings.contains(parameter)||bindings[parameter]==XAIR_INVALID_ID)throw std::runtime_error("unbound native path parameter");args.push_back(bindings[parameter]);}
-      if(b.end_kind==XAIR_LIFT_END_DIRECT_CBRANCH){bool taken=next.start==b.target;if(!taken&&next.start!=b.fallthrough)throw std::runtime_error("selected block is not a native branch successor");need(xair_set_cbranch(r.module,b.block,b.branch_condition,taken?next.block:off_path,taken?args.data():nullptr,taken?args.size():0,taken?off_path:next.block,taken?nullptr:args.data(),taken?0:args.size()));}
-      else if((b.end_kind==XAIR_LIFT_END_DIRECT_JUMP&&next.start==b.target)||(b.end_kind==XAIR_LIFT_END_FALLTHROUGH&&next.start==b.next))need(xair_set_jump(r.module,b.block,next.block,args.data(),args.size()));
-      else throw std::runtime_error("selected edge requires an unresolved/native call model; not silently assumed");
+    for (auto &b : blocks) {
+      need(xair_block_reopen(r.module, b.block));
+      for (auto [reg, bits] : registers) {
+        bool found = false;
+        for (size_t i = 0; i < b.input_reg_count; ++i)
+          if (b.input_regs[i].reg == reg)
+            found = true;
+        if (!found) {
+          if (b.input_reg_count >= XAIR_LIFT_MAX_REG_OUTPUTS)
+            throw std::runtime_error("path register budget");
+          xair_value_id v{};
+          need(xair_block_add_param(r.module, b.block, xair_type_i(bits),
+                                    xair_x86_reg_name(reg), &v));
+          b.input_regs[b.input_reg_count++] = {reg, v};
+        }
+      }
+      for (auto flag : flags) {
+        bool found = false;
+        for (size_t i = 0; i < b.input_flag_count; ++i)
+          if (b.input_flags[i].bit == flag)
+            found = true;
+        if (!found) {
+          xair_value_id v{};
+          need(xair_block_add_param(r.module, b.block, xair_type_i(1),
+                                    "carried_flag", &v));
+          b.input_flags[b.input_flag_count++] = {static_cast<uint8_t>(flag), v};
+        }
+      }
+      if (b.memory_in == XAIR_INVALID_ID) {
+        need(xair_block_add_param(
+            r.module, b.block,
+            xair_type_mem(0, arch == XAIR_ARCH_X86_32 ? 32 : 64),
+            "carried_memory", &b.memory_in));
+        b.memory_out = b.memory_in;
+      }
     }
-    lift=blocks.front();out["binding_model"]="captured-selected-path.v1";out["scope"]="bounded selected native block path; off-path states excluded; not whole-program reachability";out["path"]=path;out["external_call_policy"]="native unresolved/partial; no implicit external-call success assumption";
+    xair_block_id off_path{};
+    need(xair_block_create(r.module, "outside_selected_path", &off_path));
+    need(xair_set_return(r.module, off_path, nullptr, 0));
+    need(xair_set_return(r.module, blocks.back().block,
+                         blocks.back().return_values,
+                         blocks.back().return_count));
+    for (size_t index = 0; index + 1 < blocks.size(); ++index) {
+      auto &b = blocks[index];
+      auto &next = blocks[index + 1];
+      std::map<xair_value_id, xair_value_id> bindings;
+      for (size_t n = 0; n < next.input_reg_count; ++n) {
+        auto reg = next.input_regs[n].reg;
+        xair_value_id value = XAIR_INVALID_ID;
+        for (size_t i = 0; i < b.input_reg_count; ++i)
+          if (b.input_regs[i].reg == reg)
+            value = b.input_regs[i].value;
+        for (size_t i = 0; i < b.output_reg_count; ++i)
+          if (b.output_regs[i].reg == reg)
+            value = b.output_regs[i].value;
+        bindings[next.input_regs[n].value] = value;
+      }
+      for (size_t n = 0; n < next.input_flag_count; ++n) {
+        auto flag = next.input_flags[n].bit;
+        xair_value_id value = XAIR_INVALID_ID;
+        for (size_t i = 0; i < b.input_flag_count; ++i)
+          if (b.input_flags[i].bit == flag)
+            value = b.input_flags[i].value;
+        for (size_t i = 0; i < b.output_flag_count; ++i)
+          if (b.output_flags[i].bit == flag)
+            value = b.output_flags[i].value;
+        bindings[next.input_flags[n].value] = value;
+      }
+      bindings[next.memory_in] = b.memory_out;
+      std::vector<xair_value_id> args;
+      for (size_t i = 0; i < xair_block_param_count(r.module, next.block);
+           ++i) {
+        xair_value_id parameter{};
+        need(xair_block_param_value(r.module, next.block, i, &parameter));
+        if (!bindings.contains(parameter) ||
+            bindings[parameter] == XAIR_INVALID_ID)
+          throw std::runtime_error("unbound native path parameter");
+        args.push_back(bindings[parameter]);
+      }
+      if (b.end_kind == XAIR_LIFT_END_DIRECT_CBRANCH) {
+        bool taken = next.start == b.target;
+        if (!taken && next.start != b.fallthrough)
+          throw std::runtime_error(
+              "selected block is not a native branch successor");
+        need(xair_set_cbranch(
+            r.module, b.block, b.branch_condition,
+            taken ? next.block : off_path, taken ? args.data() : nullptr,
+            taken ? args.size() : 0, taken ? off_path : next.block,
+            taken ? nullptr : args.data(), taken ? 0 : args.size()));
+      } else if ((b.end_kind == XAIR_LIFT_END_DIRECT_JUMP &&
+                  next.start == b.target) ||
+                 (b.end_kind == XAIR_LIFT_END_FALLTHROUGH &&
+                  next.start == b.next))
+        need(xair_set_jump(r.module, b.block, next.block, args.data(),
+                           args.size()));
+      else
+        throw std::runtime_error("selected edge requires an unresolved/native "
+                                 "call model; not silently assumed");
+    }
+    lift = blocks.front();
+    out["binding_model"] = "captured-selected-path.v1";
+    out["scope"] = "bounded selected native block path; off-path states "
+                   "excluded; not whole-program reachability";
+    out["path"] = path;
+    out["external_call_policy"] = "native unresolved/partial; no implicit "
+                                  "external-call success assumption";
   }
   // The native basic-block lifter already returns its outputs and branch
   // expression.
@@ -277,7 +494,7 @@ RuntimeJson runtime_symbolic(const RuntimeJson &observation,
   xair_sym_context_set_analysis_options(r.context, &options.analysis);
   need(xair_sym_state_create(r.context, r.module, lift.block, &r.state));
   Callback callback{&r, &blocks.back()};
-  callback.path=&blocks;
+  callback.path = &blocks;
   auto symbolic = request.value("symbolic_registers", J::array());
   if (!symbolic.is_array() || symbolic.size() > 16)
     throw std::runtime_error(
@@ -326,6 +543,27 @@ RuntimeJson runtime_symbolic(const RuntimeJson &observation,
     need(xair_sym_state_set_value(r.state, lift.input_flags[i].value, expr));
   }
   std::set<std::uint64_t> symbolic_bytes, seeded_bytes;
+  callback.input_ranges = request.value("input_ranges", J::array());
+  if (!callback.input_ranges.is_array() || callback.input_ranges.size() > 4)
+    throw std::runtime_error("at most four input mappings");
+  std::set<uint64_t> mapped;
+  for (const auto &range : callback.input_ranges) {
+    const auto source = range.at("source").get<std::string>();
+    if (source != "stdin" && source != "argv" && source != "file")
+      throw std::runtime_error("unsupported input source");
+    const auto base = runtime_number(range.at("address")),
+               count = runtime_number(range.at("size"));
+    if (!count || count > 256 || base > UINT64_MAX - count ||
+        runtime_number(range.value("offset", J(0))) > 4096)
+      throw std::runtime_error("input mapping exceeds budget");
+    for (uint64_t i = 0; i < count; ++i) {
+      if (!mapped.insert(base + i).second)
+        throw std::runtime_error("overlapping input mappings");
+      symbolic_bytes.insert(base + i);
+    }
+  }
+  if (symbolic_bytes.size() > 256)
+    throw std::runtime_error("at most 256 symbolic input bytes");
   for (const auto &range : request.value("symbolic_memory", J::array())) {
     auto base = runtime_number(range.at("address"));
     auto count = runtime_number(range.at("size"));
@@ -363,11 +601,40 @@ RuntimeJson runtime_symbolic(const RuntimeJson &observation,
   if (seeded_bytes != symbolic_bytes)
     throw std::runtime_error(
         "symbolic memory must be present in the referenced capture");
+  auto constraints = request.value("byte_constraints", J::array());
+  if (!constraints.is_array() || constraints.size() > 256)
+    throw std::runtime_error("byte constraint budget exceeded");
+  for (const auto &constraint : constraints) {
+    const auto address = runtime_number(constraint.at("address"));
+    if (!symbolic_bytes.contains(address))
+      throw std::runtime_error(
+          "constraint must name a symbolized captured byte");
+    const auto allowed = bytes(constraint.at("allowed_hex").get<std::string>());
+    if (allowed.empty() || allowed.size() > 256)
+      throw std::runtime_error("byte alphabet must contain 1..256 values");
+    xair_sym_expr_id value{}, predicate{};
+    need(xair_sym_memory_load8(r.state, address, &value));
+    need(xair_sym_const(r.context, 1, 0, &predicate));
+    for (auto byte : allowed) {
+      xair_sym_expr_id constant{}, equal{}, joined{};
+      need(xair_sym_const(r.context, 8, byte, &constant));
+      need(xair_sym_binary(r.context, XAIR_OP_EQ, 1, value, constant, &equal));
+      need(
+          xair_sym_binary(r.context, XAIR_OP_OR, 1, predicate, equal, &joined));
+      predicate = joined;
+    }
+    need(xair_sym_state_assume(r.state, predicate));
+  }
+  out["input_ranges"] = callback.input_ranges;
+  out["input_mapping_trust"] =
+      "caller-selected captured-address mapping; target input lineage must be "
+      "independently observed";
+  out["byte_constraints"] = constraints;
   xair_sym_explore_options explore{};
   xair_sym_explore_options_init(&explore);
   explore.analysis = options.analysis;
   explore.max_states = 32;
-  explore.max_block_steps = blocks.size()+2;
+  explore.max_block_steps = blocks.size() + 2;
   explore.max_symbolic_forks = 16;
   explore.cancel_token = r.cancel;
   xair_sym_explore_result result{};
@@ -402,8 +669,10 @@ RuntimeJson runtime_symbolic(const RuntimeJson &observation,
     out["diagnostic"] = callback.error;
   bool complete =
       status == XAIR_SYM_OK && result.completion_reason == XAIR_SYM_COMPLETED &&
-      std::all_of(blocks.begin(),blocks.end(),[](const auto &b){return !b.opaque_instruction_count;}) && !result.unresolved_operations &&
-      !callback.results.empty() && lift.input_vector_count == 0;
+      std::all_of(blocks.begin(), blocks.end(),
+                  [](const auto &b) { return !b.opaque_instruction_count; }) &&
+      !result.unresolved_operations && !callback.results.empty() &&
+      lift.input_vector_count == 0;
   out["status"] = complete ? "completed" : "partial";
   if (mode == "source_to_sink" && out["sink_findings"].empty()) {
     out["status"] = "partial";

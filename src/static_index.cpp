@@ -64,6 +64,10 @@ Json normalize_static(const TargetRecord& target,const Json& job,std::string_vie
     walk=[&](const Json& value,const std::string& path,unsigned depth){
         if(depth>24){out["partial"]=true;return;}
         if(!value.is_object())return;
+        if(backend=="ilspy"&&path.empty()) {
+            for(const auto &[collection,kind]:std::map<std::string,std::string>{{"references","managed_assembly_reference"},{"member_refs","managed_member_reference"},{"resources","managed_resource"}})
+                if(value.contains(collection))for(size_t i=0;i<value.at(collection).size();++i)add(kind,value.at(collection)[i],"/"+collection+"/"+std::to_string(i));
+        }
         if(backend=="wireshark"&&path.empty()){
             if(value.contains("packets")&&value["packets"].is_array())for(std::size_t i=0;i<value["packets"].size();++i)
                 if(value["packets"][i].is_object()){
@@ -110,6 +114,17 @@ Json normalize_static(const TargetRecord& target,const Json& job,std::string_vie
     for(const auto& e:out["entities"]){
         current_namespace=e["native_namespace"].get<std::string>();
         const auto& n=e["native"];const auto kind=e["kind"].get<std::string>();
+        if(backend=="ilspy"&&kind=="managed_member_reference"&&n.value("resolution",std::string{})=="native_metadata_resolution") {
+            auto parsed=address(n.at("target_token"));if(!parsed){out["partial"]=true;continue;}auto token=hex_address(*parsed);
+            Json destination{{"artifact_sha256",n.at("target_artifact_sha256")},{"address_space","managed_metadata"},{"address",token}};
+            destination["anchor_id"]=id("loc",Json::array({n.at("target_artifact_sha256"),"managed_metadata",token}));
+            relation(e,"managed_member_reference",e["id"],nullptr,e["location"],destination,n);
+        }
+        if(backend=="ilspy"&&kind=="managed_assembly_reference"&&n.value("resolution",std::string{})=="exact_assembly_identity") {
+            Json destination{{"artifact_sha256",n.at("target_artifact_sha256")},{"address_space","managed_metadata"},{"address","0x20000001"}};
+            destination["anchor_id"]=id("loc",Json::array({n.at("target_artifact_sha256"),"managed_metadata","0x20000001"}));
+            relation(e,"managed_assembly_dependency",e["id"],nullptr,e["location"],destination,n);
+        }
         if(backend=="wireshark"&&kind=="packet"&&n.contains("stream_refs")&&n["stream_refs"].is_array())
             for(const auto& stream:n["stream_refs"])if(stream.is_object()&&stream.contains("id"))
                 relation(e,"native_stream_member",e["id"],resolve("packet_stream",stream["id"]),e["location"],nullptr,stream);

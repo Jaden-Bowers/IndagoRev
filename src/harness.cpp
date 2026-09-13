@@ -106,6 +106,24 @@ void save_action(Db &db, const J &a) {
       .row();
 }
 J citation(Db &db, const J &inv, const std::string &id) {
+  if(id.rfind("kn_",0)==0) {
+    const auto p=inv.at("project").get<std::string>();
+    Q record(db,"SELECT record,sha,revision FROM wb_records WHERE project=? AND id=? ORDER BY revision DESC LIMIT 1");
+    if(!record.s(1,p).s(2,id).row()||sha256_text(record.text(0))!=record.text(1))throw std::runtime_error("missing or corrupt receipt citation");
+    const auto r=J::parse(record.text(0));
+    if(r.at("kind")!="product"||r.at("body").value("schema",std::string{})!="indago.experiment.v1"||
+       !r.contains("harness_origin")||r.at("harness_origin").at("investigation")!=inv.at("id")||
+       !harness_contains_artifact(inv,r.at("scope").at("artifact_sha256")))throw std::runtime_error("not an owned native experiment citation");
+    Q origin(db,"SELECT record FROM wb_investigation_actions WHERE project=? AND investigation=? AND id=?");
+    if(!origin.s(1,p).s(2,inv.at("id").get<std::string>()).s(3,r.at("harness_origin").at("action").get<std::string>()).row())throw std::runtime_error("receipt origin absent");
+    const auto action=J::parse(origin.text(0));
+    if(action.at("request").at("operation")!="experiment.run"||action.at("publication").at("sha256")!=record.text(1)||action.at("publication").at("knowledge_id")!=id)
+      throw std::runtime_error("receipt is not the exact native action publication");
+    return {{"id",id},{"revision",std::to_string(record.num(2))},{"raw_sha256",record.text(1)},
+      {"artifact_sha256",r.at("scope").at("artifact_sha256")},{"producer","native-experiment"},
+      {"status","observation_only"},{"current",true},{"analysis_head_current",true},{"ghidra_program_advanced",false},
+      {"citation_type","experiment_receipt"},{"scope_limit","supports partial observation reports only, never an answered/proved result by itself"}};
+  }
   Q q(db,
       "SELECT record,revision,status,sha FROM evidence WHERE project=? AND id=?");
   if (!q.s(1, inv.at("project").get<std::string>()).s(2, id).row())
@@ -373,6 +391,11 @@ J run_action(StaticService &service, const J &request) {
   Tx tx(db);
   inv = load_investigation(db, p, id);
   action = action_record(db, p, id, aid);
+  if(action.at("request").at("backend")=="workbench"&&action.at("request").at("operation")=="experiment.run"&&result.contains("runtime_sessions")) {
+    auto sessions=inv.value("runtime_observation_sessions",J::array());
+    for(const auto &sid:result.at("runtime_sessions"))if(std::find(sessions.begin(),sessions.end(),sid)==sessions.end()&&sessions.size()<128)sessions.push_back(sid);
+    inv["runtime_observation_sessions"]=sessions;
+  }
   if (result.value("status", std::string{}) == "completed" &&
       result.contains("derived_artifact")) {
     auto &derived = result["derived_artifact"];
@@ -484,7 +507,7 @@ J harness_capabilities() {
   return {
       {"schema", "indago.harness-capabilities.v1"},
       {"stage",
-       "native external/built-in controller with bounded static envelope"},
+       "native external/built-in controller with explicitly granted bounded actions"},
       {"operations",
        {"create",   "show",       "claim",      "renew",  "release",
         "transfer", "checkpoint", "reason", "propose",    "run",    "actions",
@@ -499,7 +522,7 @@ J harness_capabilities() {
        {{"explicit_grant_required", true},
         {"operations",
          {"knowledge.put", "knowledge.revise", "validate.compare", "validate.transform",
-          "transform.run"}},
+          "transform.run", "helper.run", "experiment.run", "research.run", "guest.run"}},
         {"cancellation",
          "killable native child process; committed publications retained"},
         {"security_sandbox", false},
@@ -512,6 +535,10 @@ J harness_capabilities() {
         {"evidence", {"show", "read"}},
         {"artifact", {"read"}},
         {"calculation", {"evaluate"}},
+        {"helper", {"capabilities", "read"}},
+        {"experiment", {"capabilities", "read", "reconcile"}},
+        {"research", {"read", "tools"}},
+        {"guest", {"read"}},
         {"index", {"entities", "relations", "claims", "revisions"}},
         {"graph", {"search", "packet", "neighborhood"}},
         {"coverage", {"report"}}}},
@@ -522,10 +549,11 @@ J harness_capabilities() {
         {"derived_admission",
          "explicit artifact-count/byte grant; scoped transform receipts only"},
         {"runtime_system_manifest", false}}},
-      {"target_execution", false},
+      {"target_execution", true},
+      {"target_execution_policy", "disabled by default; exact operator-granted trusted-host experiment targets only; no sandbox"},
       {"shell", false},
       {"network", true},
-      {"target_network", false},
+      {"target_network", "unrestricted host behavior if target execution is granted; not sandboxed"},
       {"controller_network_policy", "explicit pinned model endpoint only"},
       {"solution_proofs",
        {{"question_bound", true},
@@ -538,8 +566,8 @@ J harness_capabilities() {
       {"missing_capabilities",
        {"live provider/model qualification",
         "tokenizer-specific context qualification",
-        "disposable-lab execution grants", "generated helper sandbox",
-        "runtime system manifest and lifecycle"}},
+        "disposable-lab execution grants", "Windows-native generated helper sandbox (use Linux CLI in WSL)",
+        "general system-manifest execution provider (bounded guest profiles are separate)"}},
       {"lease_ms", lease_ms},
       {"verified_solve", false}};
 }
@@ -567,7 +595,7 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
   if (operation == "create") {
     keys(r, {"project", "target_id", "objective", "required_facts",
              "stop_conditions", "owner", "budget", "scope",
-             "workbench_mutations", "derived_artifacts", "system_manifest", "runtime_observation_sessions",
+             "workbench_mutations", "analysis_helpers", "runtime_execution", "guest_profiles", "derived_artifacts", "system_manifest", "runtime_observation_sessions",
              "proof_requirements"});
     auto owner = r.at("owner");
     keys(owner, {"mode", "name", "model_declaration", "profile"});
@@ -656,6 +684,12 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
                                   "do not expand authority"}};
     scope["sha256"] = sha256_text(scope.dump());
     J derived_grant{{"max_artifacts", 0}, {"max_bytes", 0}};
+    if(r.value("analysis_helpers",false)&&!r.value("workbench_mutations",false))
+      throw std::runtime_error("analysis_helpers requires workbench_mutations");
+    if(r.contains("guest_profiles")) {
+      if(!r.value("workbench_mutations",false)||!r.at("guest_profiles").is_array()||r.at("guest_profiles").size()>4)throw std::runtime_error("guest profiles require mutations and at most four operator profiles");
+      for(const auto &id:r.at("guest_profiles")){identifier(id.get<std::string>());(void)guest_action(store,"show",{{"id",id}});}
+    }
     if (r.contains("derived_artifacts")) {
       if (!r.value("workbench_mutations", false))
         throw std::runtime_error(
@@ -709,6 +743,8 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
                                ? "static-and-knowledge-v1"
                                : "static-read-only-v1"},
                {"workbench_mutations", r.value("workbench_mutations", false)},
+               {"analysis_helpers", r.value("analysis_helpers",false)},
+               {"guest_profiles", r.value("guest_profiles",J::array())},
                {"derived_artifacts", derived_grant},
                {"target_execution", false},
                {"shell", false},
@@ -716,6 +752,17 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
                {"model_calls", owner.at("mode") == "builtin"}}},
              {"local_only_compliance",
               "not certified; external owner declaration only"}};
+    if(!record.at("envelope").at("guest_profiles").empty()) {
+      record["envelope"]["guest_execution"]=true;
+      record["envelope"]["target_execution"]=true;
+      record["envelope"]["profile"]="bounded-guest-experiments-v1";
+    }
+    if(r.contains("runtime_execution")) {
+      if(!r.value("workbench_mutations",false))throw std::runtime_error("runtime_execution requires workbench_mutations");
+      record["envelope"]["runtime_execution"]=normalize_execution_grant(store,record,r.at("runtime_execution"));
+      record["envelope"]["target_execution"]=true;
+      record["envelope"]["profile"]="bounded-host-experiments-v1";
+    }
     if(r.contains("proof_requirements"))record["proof_requirements"]=proof_requirements;
     auto observation_sessions=r.value("runtime_observation_sessions",J::array());
     if(!observation_sessions.is_array()||observation_sessions.size()>8)throw std::runtime_error("At most eight runtime observation sessions may be granted");
@@ -1080,6 +1127,14 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
                          {"memory_bytes", 2147483648ULL},
                          {"max_items", 128}};
       req = service.normalize(req);
+      if(req.at("backend")=="ilspy"&&req.at("arguments").contains("pdb")) {
+        bool scoped=false;for(const auto &component:harness_components(inv))if(component.at("target_id")==req.at("arguments").at("pdb"))scoped=true;
+        if(!scoped)throw std::runtime_error("managed PDB outside investigation scope");
+      }
+      if(req.at("backend")=="ilspy")for(const auto &dependency:req.at("arguments").value("dependencies",J::array())) {
+        bool scoped=false;for(const auto &component:harness_components(inv))if(component.at("target_id")==dependency)scoped=true;
+        if(!scoped)throw std::runtime_error("managed dependency outside investigation scope");
+      }
     }
     auto digest = sha256_text(req.dump());
     Q existing(db, "SELECT record FROM wb_investigation_actions WHERE "

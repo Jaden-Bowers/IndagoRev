@@ -137,7 +137,7 @@ public:
     std::string terminal=ptsname(tty_);
     engine_=fork();if(engine_<0)throw std::runtime_error("GDB fork failed");
     if(!engine_){dup2(in[0],0);dup2(out[1],1);dup2(out[1],2);for(auto fd:{in[0],in[1],out[0],out[1]})close(fd);
-      auto libs=engine.parent_path().parent_path()/"lib";setenv("LD_LIBRARY_PATH",libs.c_str(),1);
+      auto libs=engine.parent_path().parent_path()/"lib";setenv("LD_LIBRARY_PATH",libs.c_str(),1);setenv("SHELL","/bin/sh",1);
       execl(engine.c_str(),engine.c_str(),"--nx","--nh","--quiet","--interpreter=mi3",nullptr);_exit(127);}
     close(in[0]);close(out[1]);input_=in[1];output_=out[0];
     command("-gdb-set pagination off");command("-gdb-set confirm off");command("-gdb-set mi-async on");
@@ -151,7 +151,19 @@ public:
     else {
       command("-file-exec-and-symbols "+mi_quote(r.at("file").get<std::string>()));
       if(r.contains("cwd"))command("-environment-cd "+mi_quote(r.at("cwd").get<std::string>()));
-      std::string args="-exec-arguments";for(const auto &a:r.value("argv",J::array()))args+=" "+mi_quote(a.get<std::string>());command(args);
+      std::string args="-exec-arguments";
+      auto shell_literal=[](const std::string &s){std::string out="'";for(char c:s)out+=c=='\''?"'\\''":std::string(1,c);return out+"'";};
+      if(r.contains("input_manifest")) {
+        command("-interpreter-exec console \"unset environment\"");
+        for(auto it=r.at("environment").begin();it!=r.at("environment").end();++it)
+          command("-interpreter-exec console "+mi_quote("set environment "+it.key()+" = "+it.value().get<std::string>()));
+        command("-gdb-set startup-with-shell on");
+        args="set args";
+        for(const auto &a:r.value("argv",J::array()))args+=" "+shell_literal(a.get<std::string>());
+        args+=" <"+shell_literal(r.at("stdin_file").get<std::string>())+" >"+shell_literal(r.at("stdout_file").get<std::string>())+" 2>"+shell_literal(r.at("stderr_file").get<std::string>());
+        args="-interpreter-exec console "+mi_quote(args);
+      } else for(const auto &a:r.value("argv",J::array()))args+=" "+mi_quote(a.get<std::string>());
+      command(args);
       command("-interpreter-exec console \"starti\"");
     }
     alive_=true;

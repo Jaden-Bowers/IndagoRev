@@ -31,7 +31,7 @@ Json StaticService::capabilities() const {
     result["backends"][0]["integration"]="statically-linked; same-executable worker";
     result["backends"].push_back({{"name","sym"},{"available",airece.has_value()},{"operations",{"solve_branch","source_to_sink","symbolic_slice","taint","path_condition"}},{"integration","statically-linked AIRECE/XAIR_SYM/Z3"},{"cancellation",true}});
     result["backends"].push_back({{"name","ghidra"},{"available",ghidra.has_value()},{"executable",ghidra?Json(ghidra->string()):Json(nullptr)},{"operations",{"import","inspect","functions","decompile","tokens","assembly","xrefs","calls","strings","imports","exports","types","variables","cfg","pcode","control_flow","analyze","session","flush","close","annotate","annotations"}},{"integration","persistent DecompInterface worker"},{"bundled",INDAGO_HAS_GHIDRA!=0},{"profiles",{"standard","inventory"}},{"cancellation",true}});
-    result["backends"].push_back({{"name","ilspy"},{"available",INDAGO_HAS_ILSPY!=0},{"operations",{"inventory","types","methods","decompile","assembly"}},{"integration","bundled self-contained ILSpy worker"},{"cancellation",true},{"input_limit_bytes",16777216},{"dependency_resolution","disabled"}});
+    result["backends"].push_back({{"name","ilspy"},{"available",INDAGO_HAS_ILSPY!=0},{"operations",{"inventory","types","methods","decompile","assembly","references","member_refs","resources","trace","artifact"}},{"integration","bundled self-contained managed/artifact worker"},{"cancellation",true},{"input_limit_bytes",16777216},{"dependency_resolution","explicit imported target IDs; maximum eight"}});
     result["backends"].push_back({{"name","capa"},{"available",INDAGO_HAS_ENRICHMENT!=0},{"operations",{"capabilities"}},{"integration","bundled upstream standalone worker"},{"formats",{"pe","elf","dotnet"}},{"cancellation",true},{"findings_are_leads",true}});
     result["backends"].push_back({{"name","floss"},{"available",INDAGO_HAS_ENRICHMENT!=0},{"operations",{"strings"}},{"integration","bundled upstream standalone worker"},{"modes",{"static","stack","tight","decoded","all"}},{"cancellation",true},{"language_specialization","disabled"}});
     result["backends"].push_back({{"name","lief"},{"available",INDAGO_HAS_LIEF!=0},{"operations",{"inventory","sections","resources","notes","libraries"}},{"integration","statically linked C++; same-executable worker"},{"cancellation",true},{"input_limit_bytes",16777216}});
@@ -51,7 +51,7 @@ Json StaticService::normalize(Json request) const {
     const std::map<std::string,std::set<std::string>> operations{
         {"airece",{"inspect","functions","function","calls","xrefs","slice","path","flow","taint","evidence"}},
         {"xair",{"inventory","cfg","semantic"}},
-        {"ilspy",{"inventory","types","methods","decompile","assembly"}},
+        {"ilspy",{"inventory","types","methods","decompile","assembly","references","member_refs","resources","trace","artifact"}},
         {"capa",{"capabilities"}},{"floss",{"strings"}},
         {"lief",{"inventory","sections","resources","notes","libraries"}},
         {"wireshark",{"packets"}},
@@ -103,7 +103,15 @@ Json StaticService::normalize(Json request) const {
         if(operation=="inventory"&&offset!=0)throw std::runtime_error("LIEF inventory does not accept a nonzero offset");
     }
     if(backend=="ilspy") {
-        for(auto it=request["arguments"].begin();it!=request["arguments"].end();++it)if(it.key()!="offset")throw std::runtime_error("Unknown ILSpy argument");
+        for(auto it=request["arguments"].begin();it!=request["arguments"].end();++it)if(it.key()!="offset"&&it.key()!="dependencies"&&it.key()!="pdb"&&it.key()!="entry")throw std::runtime_error("Unknown ILSpy argument");
+        if(request["arguments"].contains("entry")&&(request.at("operation")!="artifact"||!request["arguments"]["entry"].is_string()||request["arguments"]["entry"].get<std::string>().size()>1024))throw std::runtime_error("Invalid artifact member selection");
+        if(request["arguments"].contains("pdb")){const auto pdb=store_.target(request.at("project").get<std::string>(),request["arguments"]["pdb"].get<std::string>());if(pdb.size>16777216)throw std::runtime_error("PDB size bound");}
+        const auto deps=request["arguments"].value("dependencies",Json::array());
+        if(!deps.is_array()||deps.size()>8)throw std::runtime_error("At most eight imported managed dependencies");
+        std::set<std::string> seen;std::uint64_t total=0;
+        for(const auto &id:deps){if(!id.is_string()||!seen.insert(id.get<std::string>()).second)throw std::runtime_error("Invalid or duplicate managed dependency");
+            const auto dependency=store_.target(request.at("project").get<std::string>(),id.get<std::string>());
+            if(dependency.size>16777216||(total+=dependency.size)>33554432)throw std::runtime_error("Managed dependency byte limit");}
         const auto offset=request["arguments"].value("offset",Json(0));
         if(!offset.is_number_integer()||offset.get<std::int64_t>()<0||offset.get<std::int64_t>()>1000000)throw std::runtime_error("Invalid ILSpy offset");
         const bool method_operation=operation=="decompile"||operation=="assembly";
@@ -168,7 +176,10 @@ Json StaticService::execute(const Json& submitted) const {
         } else if(backend=="lief") {
             result=query_lief(target,request,cancel);
         } else if(backend=="ilspy") {
-            result=query_ilspy(target,request,cancel);
+            std::vector<TargetRecord> dependencies;
+            for(const auto &id:args.value("dependencies",Json::array()))dependencies.push_back(store_.target(project,id.get<std::string>()));
+            std::optional<TargetRecord> pdb;if(args.contains("pdb"))pdb=store_.target(project,args.at("pdb").get<std::string>());
+            result=query_ilspy(target,request,cancel,dependencies,pdb?&*pdb:nullptr);
         } else if(backend=="xair") {
             XairQuery options; options.operation=operation; options.max_items=budget["max_items"]; options.max_output_bytes=output;
             options.analysis.wall_time_ms=wall; options.analysis.memory_bytes=budget["memory_bytes"]; options.analysis.profile=args.value("profile",std::string("balanced"));

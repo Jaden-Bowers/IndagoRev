@@ -4,6 +4,20 @@
 
 **Purpose:** Build an agentic reverse-engineering workbench that accepts a program or a system of programs, investigates its behavior autonomously, and answers natural-language questions with inspectable evidence. Provide both an IDA-style desktop application with an integrated model harness and a complete CLI/API for external harnesses.
 
+**Current implementation contract:** [capabilities and build profiles](../docs/current-capabilities.md)
+supersede historical readiness snapshots below. The application core and controller
+are C/C++; controlled Python helpers do not make this a Python application.
+
+**Autonomy expansion, September 12–13, 2026:** Added native receipt-bound algorithm
+reconstruction/revision, service provenance and falsification contracts,
+failure/reproduction and matched-feature evaluation, reviewed recipe export, and
+bounded QEMU KVM/TCG boot-disk lifecycle with GDB observation and selected replay.
+Four live Qwen feature pairs produced six tested agreements and two retained model
+failures; this is not a full-autonomy or held-out transfer claim. See
+[workflow scope](../docs/reconstruction-services-evaluation.md) and
+[guest lifecycle scope](../docs/qemu-guests.md). The 116-entry benchmark and 2025
+holdout remain unchanged; these tests do not execute archive challenges.
+
 **Implementation status, 2026-09-10:** A fresh two-generation local-Qwen run of
 FLARE-On 2014 challenge 3 passed the repaired question-bound gate. Five decoder
 stages pass XAIR instruction/control-flow checks and the recovered
@@ -103,7 +117,7 @@ Access to the SRE-Bench instances and graders has not been established; only the
 | Provenance, explicit unknowns, reproducible experiments | Preserve | Foundation for trustworthy answers |
 | AIRECE as design reference only | Replace with candidate integration | Local implementation already exposes useful semantic views, flow, slices, and evidence |
 | Large new CoreIR with shared executable semantics | Reduce to a thin evidence/relationship contract | Avoid duplicating XAIR and p-code or introducing unsound translations |
-| C++ everywhere in the control plane | Use C++ for native engines/GUI; Python for orchestration and experiments | Faster iteration on model adapters and the existing Python benchmark ecosystem |
+| Control plane implementation | Native C/C++ core and controller; controlled helpers may use Python | Owner-selected native application architecture; helper environments remain separate |
 | PostgreSQL and distributed infrastructure at MVP | Start with SQLite plus local content-addressed storage | Fit a desktop, single-service deployment; introduce server storage when measured needs justify it |
 | No arbitrary agent scripts | Replace with a governed script/terminal capability | Novel RE tasks require custom computation and tool composition |
 | Planner, runtime, and GUI arrive late | Move the complete question/experiment/validation loop forward | Validate the product's central hypothesis before expanding infrastructure |
@@ -141,7 +155,9 @@ XAIR readiness documentation distinguishes continued-development readiness from 
 
 The AIRECE README reports a small local 27B experiment using a Q1_0 quantization and nine held-out cases per model, including a native-objective advantage over Ghidra and weaker reconstruction results in that tier. Treat it as motivation for preserving multiple views, not a general result about 27B models or FLARE-On. Rerun with controlled quantization, output validation, and enough independent programs.
 
-Local license headers identify Jaden Bowers and reserve rights. This plan assumes the project owner can authorize integration of their own originals; record that ownership/grant with the dependency manifest. Do not impose a fictional third-party permission obstacle on owner-controlled code. Third-party components and redistribution still need their actual notices and terms recorded. The planning work does not require relicensing these repositories.
+Historical licensing review: owner-controlled engine integration has since been
+authorized and incorporated. Current license files and component provenance are
+authoritative; third-party redistribution obligations remain separate.
 
 ## 4. Product requirements and acceptance contract
 
@@ -904,14 +920,13 @@ A research experiment ends with one of three useful outcomes: a qualified capabi
 
 These are the primary inputs to the review. Component behavior and benchmark numbers are attributed to these local records unless independently measured in a future milestone.
 
-- [Previous consolidated project plan](C:/Users/Jaden/Desktop/Projects/IndagoRev/kb/Autonomous_RE_Platform_Consolidated_Project_Plan.md)
-- [Supplied SRE-Bench paper, version 1](C:/Users/Jaden/Desktop/Projects/IndagoRev/kb/2608.11469v1.pdf)
-- [XAIR README](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/XAIR/README.md) and [readiness plan](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/XAIR/docs/AIRECE_READINESS_PLAN.md)
-- [XAIR CFG readiness](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/XAIR_CFG/docs/phase5-readiness.md)
-- [XAIR Symbolic readiness](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/XAIR_SYM/docs/PHASE6_READINESS.md)
-- [AIRECE README and reported benchmark](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/AIRECE/README.md)
-- [AIRECE benchmark freeze](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/AIRECE/BENCHMARK_FREEZE.md), [dependency pins](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/AIRECE/cmake/DependencyPins.cmake), and [semantic evaluation notes](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/AIRECE/docs/evaluation.md)
-- [AIRECE directed-flow contract](C:/Users/Jaden/Desktop/Projects/IndagoRev/xair/AIRECE/include/airece/semantic/directed_flow.hpp)
+- [Previous consolidated project plan](Autonomous_RE_Platform_Consolidated_Project_Plan.md)
+- [Supplied SRE-Bench paper, version 1](2608.11469v1.pdf)
+- [XAIR README](../xair/XAIR/README.md) and [readiness plan](../xair/XAIR/docs/AIRECE_READINESS_PLAN.md)
+- [XAIR CFG readiness](../xair/XAIR_CFG/docs/phase5-readiness.md)
+- [XAIR Symbolic readiness](../xair/XAIR_SYM/docs/PHASE6_READINESS.md)
+- [Integrated AIRECE provenance](../components/airece/INTEGRATION.md)
+- [AIRECE directed-flow contract](../components/airece/include/airece/semantic/directed_flow.hpp)
 
 ### 20.2 External source use
 

@@ -257,7 +257,7 @@ Linux lab-side capture can progress without that decision.
 ## Target tracks and grading
 
 - **FLARE-On:** local input root is
-  `C:/Users/Jaden/Desktop/Projects/IndagoRev/flare-on-chals/Flare-On-Challenges/Challenges`.
+  `../flare-on-chals/Flare-On-Challenges/Challenges`.
   The sibling `Write-ups` tree is excluded. Current directory names cover 2014–2024;
   this is not asserted to be the complete official archive. Record exact artifact
   hashes, environment dependencies and independent challenge verifiers before a

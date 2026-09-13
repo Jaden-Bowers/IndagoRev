@@ -1,5 +1,10 @@
 # Native runtime stage
 
+Historical debugger baseline. The [current capability contract](current-capabilities.md)
+and [autonomous experiments](autonomous-experiments.md) cover later grants,
+companions, cancellation policy and guest profiles. Direct sessions and autonomous
+experiments have different lifetime/cleanup policies; do not interchange them.
+
 Indago now has persistent native debugger sessions through the CLI. A session
 is owned by another instance of the same `indago` executable (`__runtime`), not
 by a Python service. Separate CLI invocations communicate through a durable
@@ -207,7 +212,7 @@ cmake --build out/linux-build --target indago -j6
 ```
 
 The current WSL development build is at
-`/home/jaden/.cache/indago/native-build/indago`; a copy is delivered at
+`<INDAGO_BUILD_CACHE>/native-build/indago`; a copy is delivered at
 `out/linux/indago`. Use Linux paths and a Linux-local workspace for live sessions.
 Ghidra and its JDK are privately embedded on both platforms; an installed
 Ghidra, Java, GDB or Python is not a runtime prerequisite. See the engine build

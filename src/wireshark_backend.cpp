@@ -3,6 +3,7 @@
 #include "indago/runtime.hpp"
 #include "indago/service.hpp"
 #include "packet_streams.hpp"
+#include "isolated_worker.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
@@ -62,9 +63,12 @@ J wireshark_worker(const J& request){
         fs::current_path(scratch);
         NativeProcessOptions options;options.wall_time_ms=wall;options.max_output_bytes=static_cast<std::size_t>(output);
         const auto ceiling=offset+limit+1;
-        const auto native=run_native_process(executable,{"-n","-r",input.string(),"-c",std::to_string(ceiling),
-            "-Y","frame.number > "+std::to_string(offset),"-o","frame.show_file_off:true","-T","json","--no-duplicate-keys","-x"},options);
+        const auto native=run_readonly_parser(executable,{"-n","-r",input.string(),"-c",std::to_string(ceiling),
+            "-Y","frame.number > "+std::to_string(offset),"-o","frame.show_file_off:true","-T","json","--no-duplicate-keys","-x"},{input},options,executable.parent_path());
         result["native_exit_code"]=native.exit_code;result["upstream_stdout_sha256"]=sha256_text(native.output);
+#ifdef __linux__
+        result["upstream_worker"]={{"profile","linux-parser-bwrap-cgroup-v1"},{"security_sandbox",true},{"memory_limit_enforced",true},{"network",false},{"scope","upstream dissection subprocess; outer receipt normalizer is separate"}};
+#endif
         result["stderr_prefix"]=native.error.substr(0,512);
         result["prefix_frames_bound"]=ceiling;
         if(sha256_file(input)!=hash)throw std::runtime_error("Capture snapshot changed during dissection");

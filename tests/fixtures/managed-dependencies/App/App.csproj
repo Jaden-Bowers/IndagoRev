@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><AssemblyName>Indago.Dependency.App</AssemblyName></PropertyGroup><ItemGroup><ProjectReference Include="../Library/Library.csproj"/><EmbeddedResource Include="marker.txt"/></ItemGroup></Project>

@@ -24,7 +24,7 @@ No model harness, GUI, new lab/backend integrations or production qualification.
    conservative runtime packaging profile.
 
 Focused static checks will use the documented synthetic corpus at
-`C:/Users/Jaden/Desktop/Projects/IR/xair/tests/corpus/phase3`.
+`<IR_CHECKOUT>/xair/tests/corpus/phase3`.
 Those files are analysis inputs, not host-execution samples.
 
 ## Focused results

@@ -1,5 +1,9 @@
 # Native static stage
 
+See the [current capability contract](current-capabilities.md) for build profiles
+and later Linux verification. Historical qualification notes below are not an
+inventory of what a current executable bundles.
+
 See [static contracts and indexed identity](static-model.md) for schema validation,
 job recovery, revision freshness and the indexed query surface.
 

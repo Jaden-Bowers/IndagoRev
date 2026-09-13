@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <unistd.h>
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -203,6 +204,12 @@ NativeProcessResult run_native_process(const fs::path& executable,
     job.h = CreateJobObjectW(nullptr, nullptr);
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (options.process_memory_bytes) {
+        limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+        limits.ProcessMemoryLimit = static_cast<SIZE_T>(options.process_memory_bytes);
+        if (limits.ProcessMemoryLimit != options.process_memory_bytes)
+            throw std::runtime_error("Worker memory limit exceeds platform range");
+    }
     if (!job.h || !SetInformationJobObject(job.h, JobObjectExtendedLimitInformation, &limits, sizeof(limits)))
         throw std::runtime_error("Cannot configure worker process tree");
     std::wstring command = argument(executable.wstring());
@@ -215,8 +222,16 @@ NativeProcessResult run_native_process(const fs::path& executable,
     if(null_input.h==INVALID_HANDLE_VALUE)throw std::runtime_error("Cannot open worker stdin");
     startup.hStdInput = null_input.h;
     PROCESS_INFORMATION info{};
+    std::vector<wchar_t> environment;
+    if(options.clear_environment) {
+        for(const auto &[key,value]:options.environment) {
+            const auto entry=utf16(key+"="+value);
+            environment.insert(environment.end(),entry.begin(),entry.end());environment.push_back(0);
+        }
+        environment.push_back(0);if(environment.size()==1)environment.push_back(0);
+    } else if(!options.environment.empty())throw std::runtime_error("Explicit worker environment requires replacement mode");
     if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE,
-        CREATE_SUSPENDED | CREATE_NO_WINDOW, nullptr, options.working_directory.empty()?nullptr:options.working_directory.c_str(), &startup, &info))
+        CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, options.clear_environment?environment.data():nullptr, options.working_directory.empty()?nullptr:options.working_directory.c_str(), &startup, &info))
         throw std::runtime_error("Cannot start worker: " + std::to_string(GetLastError()));
     Handle process{info.hProcess}, thread{info.hThread};
     if (!AssignProcessToJobObject(job.h, process.h)) {
@@ -250,6 +265,11 @@ NativeProcessResult run_native_process(const fs::path& executable,
     const auto parent_pid = getpid();
     const pid_t pid = fork();
     if (pid == 0) {
+        if (options.process_memory_bytes) {
+            const auto amount = static_cast<rlim_t>(options.process_memory_bytes);
+            rlimit memory{amount, amount};
+            if (amount != options.process_memory_bytes || setrlimit(RLIMIT_AS, &memory)) _exit(126);
+        }
 #ifdef __linux__
         if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() != parent_pid) _exit(126);
 #endif
@@ -262,7 +282,14 @@ NativeProcessResult run_native_process(const fs::path& executable,
         std::string exe = executable.string();
         std::vector<char*> argv{exe.data()};
         for (const auto& a : arguments) argv.push_back(const_cast<char*>(a.c_str()));
-        argv.push_back(nullptr); execv(exe.c_str(), argv.data()); _exit(127);
+        argv.push_back(nullptr);
+        if(options.clear_environment) {
+            std::vector<std::string> entries;std::vector<char*> env;
+            for(const auto &[k,v]:options.environment)entries.push_back(k+"="+v);
+            for(auto &entry:entries)env.push_back(entry.data());env.push_back(nullptr);
+            execve(exe.c_str(),argv.data(),env.data());
+        } else if(options.environment.empty())execv(exe.c_str(), argv.data());
+        _exit(127);
     }
     close(out[1]); close(err[1]);
     if (pid < 0) { close(out[0]); close(err[0]); throw std::runtime_error("Cannot fork worker"); }
@@ -284,7 +311,19 @@ NativeProcessResult run_native_process(const fs::path& executable,
         if (result.cancelled || result.timed_out) { kill(-pid, SIGKILL); waitpid(pid, &status, 0); break; }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    const bool output_eof=drain(out[0], result.output),error_eof=drain(err[0], result.error);
+    bool output_eof=drain(out[0], result.output),error_eof=drain(err[0], result.error);
+    // Namespace launchers can exit just before their reaper closes the final
+    // pipe handle. Allow a small bounded EOF grace, not an unbounded wait on
+    // descendants that inherited stdout. Never turn non-EOF into completeness.
+    const auto drain_until=std::min(started+std::chrono::milliseconds(options.wall_time_ms),
+        std::chrono::steady_clock::now()+std::chrono::milliseconds(50));
+    while(!(output_eof&&error_eof)&&!result.cancelled&&!result.timed_out&&
+          std::chrono::steady_clock::now()<drain_until) {
+        if(cancelled(options)){result.cancelled=true;break;}
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        if(!output_eof)output_eof=drain(out[0],result.output);
+        if(!error_eof)error_eof=drain(err[0],result.error);
+    }
     result.output_complete=output_eof&&error_eof;
     close(out[0]); close(err[0]);
     kill(-pid, SIGKILL);

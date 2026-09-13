@@ -29,6 +29,10 @@ add_library(indago_core STATIC
     src/workbench.cpp
     src/system_manifest.cpp
     src/harness.cpp
+    src/analysis_helper.cpp
+    src/harness_experiment.cpp
+    src/research_workflow.cpp
+    src/guest.cpp
     src/model_provider.cpp
     src/model_http.cpp
     src/model_controller.cpp
@@ -59,6 +63,7 @@ add_library(indago_core STATIC
     src/runtime_payload.cpp
     src/runtime_gdb.cpp
     src/runtime_symbolic.cpp
+    src/runtime_input_solver.cpp
 )
 target_include_directories(indago_core PUBLIC include vendor)
 target_include_directories(indago_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -126,7 +131,14 @@ include(cmake/IntegratedZstd.cmake)
 add_executable(indago src/main.cpp)
 target_link_libraries(indago PRIVATE indago_core)
 include(cmake/BundledEngines.cmake)
+include(cmake/FullAnalysisProfile.cmake)
 add_executable(indago_runtime_fixture EXCLUDE_FROM_ALL tests/runtime_fixture.c)
+add_executable(indago_helper_tests EXCLUDE_FROM_ALL tests/helper_tests.cpp)
+target_link_libraries(indago_helper_tests PRIVATE indago_core)
+add_executable(indago_experiment_tests EXCLUDE_FROM_ALL tests/experiment_tests.cpp)
+add_executable(indago_input_fixture EXCLUDE_FROM_ALL tests/task5_fixture.c)
+target_compile_options(indago_input_fixture PRIVATE $<$<NOT:$<C_COMPILER_ID:MSVC>>:-fno-builtin-memcpy> $<$<NOT:$<C_COMPILER_ID:MSVC>>:-fno-builtin-memcmp>)
+target_link_libraries(indago_experiment_tests PRIVATE indago_core)
 add_executable(indago_telemetry_fixture EXCLUDE_FROM_ALL tests/telemetry_fixture.c)
 if(MSVC)
     target_compile_options(indago_runtime_fixture PRIVATE /Od)
@@ -139,6 +151,13 @@ enable_testing()
 if(INDAGO_BUILD_TESTS)
     add_test(NAME indago_version COMMAND indago version)
     add_test(NAME indago_capabilities COMMAND indago capabilities)
+    set_property(TARGET indago_helper_tests PROPERTY EXCLUDE_FROM_ALL FALSE)
+    set_property(TARGET indago_experiment_tests PROPERTY EXCLUDE_FROM_ALL FALSE)
+    add_dependencies(indago_experiment_tests indago_input_fixture)
+    add_test(NAME indago_runtime_experiments COMMAND indago_experiment_tests $<TARGET_FILE:indago_input_fixture>)
+    set_tests_properties(indago_runtime_experiments PROPERTIES TIMEOUT 90)
+    add_test(NAME indago_helper_workspace COMMAND indago_helper_tests)
+    set_tests_properties(indago_helper_workspace PROPERTIES TIMEOUT 90)
     add_executable(indago_worker_tests tests/airece_worker_tests.cpp)
     target_link_libraries(indago_worker_tests PRIVATE indago_core)
     add_dependencies(indago_worker_tests indago)
@@ -165,6 +184,19 @@ if(INDAGO_BUILD_TESTS)
     add_executable(indago_runtime_path_tests tests/runtime_path_tests.cpp)
     target_link_libraries(indago_runtime_path_tests PRIVATE indago_core)
     add_test(NAME indago_runtime_path COMMAND indago_runtime_path_tests)
+    set_tests_properties(indago_runtime_path PROPERTIES TIMEOUT 90)
+    add_executable(indago_sym_model_tests xair/XAIR_SYM/tests/test_coverage_edges.c)
+    target_link_libraries(indago_sym_model_tests PRIVATE xair_sym)
+    target_compile_options(indago_sym_model_tests PRIVATE $<$<C_COMPILER_ID:MSVC>:/UNDEBUG> $<$<NOT:$<C_COMPILER_ID:MSVC>>:-UNDEBUG>)
+    add_test(NAME indago_sym_models COMMAND indago_sym_model_tests)
+    set_tests_properties(indago_sym_models PROPERTIES TIMEOUT 90)
+    foreach(_sym_test IN ITEMS sym environment_internals snapshot_validation)
+        add_executable(indago_sym_${_sym_test}_tests xair/XAIR_SYM/tests/test_${_sym_test}.c)
+        target_link_libraries(indago_sym_${_sym_test}_tests PRIVATE xair_sym)
+        target_compile_options(indago_sym_${_sym_test}_tests PRIVATE $<$<C_COMPILER_ID:MSVC>:/UNDEBUG> $<$<NOT:$<C_COMPILER_ID:MSVC>>:-UNDEBUG>)
+        add_test(NAME indago_sym_${_sym_test} COMMAND indago_sym_${_sym_test}_tests)
+        set_tests_properties(indago_sym_${_sym_test} PROPERTIES TIMEOUT 90)
+    endforeach()
     target_link_libraries(indago_core_tests PRIVATE indago_core)
     add_test(NAME indago_core_contracts COMMAND indago_core_tests)
     add_executable(indago_static_model_tests tests/static_model_tests.cpp)

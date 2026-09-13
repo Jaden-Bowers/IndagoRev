@@ -35,6 +35,8 @@ RuntimeJson runtime_capabilities();
 RuntimeJson bundled_payload_inventory();
 RuntimeJson runtime_symbolic(const RuntimeJson &capture,
                              const RuntimeJson &request);
+RuntimeJson runtime_solve_input(const RuntimeJson &comparison,const RuntimeJson &delivery,
+                               const RuntimeJson &session);
 std::uint64_t runtime_number(const RuntimeJson &value);
 // Small format metadata reader, not an instruction semantics implementation.
 RuntimeJson runtime_image(const fs::path &file);

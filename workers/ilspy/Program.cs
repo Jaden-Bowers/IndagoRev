@@ -11,6 +11,7 @@ using ICSharpCode.Decompiler.CSharp.OutputVisitor;
 using ICSharpCode.Decompiler.Disassembler;
 using ICSharpCode.Decompiler.Metadata;
 using ICSharpCode.Decompiler.TypeSystem;
+using ManagedPE = ICSharpCode.Decompiler.Metadata.PEFile;
 
 // The worker parses metadata; it never loads a target as an executable assembly.
 internal static class Program
@@ -52,14 +53,14 @@ internal static class Program
             if (args.Length != 1 || Encoding.UTF8.GetByteCount(args[0]) > 32768)
                 throw new ArgumentException("One bounded JSON request required");
             var request = JsonNode.Parse(args[0]) as JsonObject ?? throw new ArgumentException("Object required");
-            var allowed = new HashSet<string> { "path", "sha256", "operation", "token", "limit", "offset", "wall_ms", "output_bytes" };
+            var allowed = new HashSet<string> { "path", "sha256", "operation", "token", "limit", "offset", "wall_ms", "output_bytes", "dependencies", "pdb", "entry", "output_path" };
             if (request.Any(field => !allowed.Contains(field.Key))) throw new ArgumentException("Unknown request field");
-            outputLimit = Number(request, "output_bytes", 65536, 4096, 1048576);
+            outputLimit = Number(request, "output_bytes", 65536, 4096, 3145728);
             int limit = Number(request, "limit", 32, 1, 128), offset = Number(request, "offset", 0, 0, 1000000);
             using var deadline = new CancellationTokenSource(Number(request, "wall_ms", 10000, 1, 60000));
             var cancellation = deadline.Token;
             string operation = request["operation"]!.GetValue<string>();
-            if (operation is not ("inventory" or "types" or "methods" or "decompile" or "assembly")) throw new ArgumentException("Unsupported operation");
+            if (operation is not ("inventory" or "types" or "methods" or "decompile" or "assembly" or "references" or "member_refs" or "resources" or "trace" or "artifact")) throw new ArgumentException("Unsupported operation");
             string path = request["path"]!.GetValue<string>();
             if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Absolute input path required");
             byte[] bytes;
@@ -73,8 +74,19 @@ internal static class Program
             string hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
             if (request["sha256"]?.GetValue<string>() != hash) throw new ArgumentException("Artifact hash mismatch");
             response["artifact_sha256"] = hash;
+            if(operation=="artifact") {
+                ArtifactReader.Read(bytes,request,response,limit,offset,cancellation);
+                string result=response.ToJsonString();if(Encoding.UTF8.GetByteCount(result)+1>outputLimit)throw new OutputLimitException();
+                Console.WriteLine(result);return response["status"]!.GetValue<string>()=="completed"?0:1;
+            }
+            if(operation=="trace") {
+                TraceReader.Read(bytes,response,limit,offset,cancellation);
+                string traceResult=response.ToJsonString();
+                if(Encoding.UTF8.GetByteCount(traceResult)+1>outputLimit)throw new ArgumentException("Trace response exceeds output budget; reduce limit");
+                Console.WriteLine(traceResult);return response["status"]!.GetValue<string>()=="completed"?0:3;
+            }
             using var stream = new MemoryStream(bytes, writable: false);
-            using var module = new PEFile(path, stream, PEStreamOptions.PrefetchEntireImage);
+            using var module = new ManagedPE(path, stream, PEStreamOptions.PrefetchEntireImage);
             var metadata = module.Metadata;
             if (module.CorHeader == null) throw new BadImageFormatException("No managed CLR header");
             response["operation"] = operation;
@@ -86,7 +98,53 @@ internal static class Program
             response["metadata_version"] = Short(metadata.MetadataVersion);
             response["type_count"] = metadata.TypeDefinitions.Count;
             response["method_count"] = metadata.MethodDefinitions.Count;
-            if (operation == "inventory")
+            if(request.ContainsKey("dependencies")&&request["dependencies"] is not JsonArray)throw new ArgumentException("Dependencies must be an array");
+            using var resolver = new ImportedResolver(request["dependencies"] as JsonArray);
+            response["imported_dependencies"]=resolver.Inventory();
+            response["dependency_resolution"] = request["dependencies"] is JsonArray { Count: >0 } ? "explicit_imports_only" : "disabled";
+            if (operation is "references" or "resources" or "member_refs") {
+                var rows=new JsonArray();response[operation]=rows;
+                var memberDecompiler=operation=="member_refs"?new CSharpDecompiler(module,resolver,new DecompilerSettings {ThrowOnAssemblyResolveErrors=false,UseDebugSymbols=false}) {CancellationToken=cancellation}:null;
+                int total=operation=="references"?metadata.AssemblyReferences.Count:operation=="member_refs"?metadata.MemberReferences.Count:metadata.ManifestResources.Count;
+                int cursor=Math.Min(offset,total);
+                while(cursor<total&&rows.Count<limit) {
+                    cancellation.ThrowIfCancellationRequested();JsonObject item;
+                    if(operation=="member_refs") {
+                        var h=MetadataTokens.MemberReferenceHandle(cursor+1);
+                        var entity=((MetadataModule)memberDecompiler!.TypeSystem.MainModule).ResolveEntity(h,default(GenericContext));
+                        var destination=entity?.ParentModule?.MetadataFile;
+                        var targetHash=destination==module?hash:resolver.Hash(destination);
+                        var token=entity?.MetadataToken??default;
+                        bool resolved=targetHash!=null&&!token.IsNil;
+                        item=new JsonObject {["token"]=$"0x{MetadataTokens.GetToken(h):x8}",["location"]=Location(h),["name"]=Short(metadata.GetString(metadata.GetMemberReference(h).Name)),["resolution"]=resolved?"native_metadata_resolution":"unresolved",["target_artifact_sha256"]=resolved?targetHash:null,["target_token"]=resolved?$"0x{MetadataTokens.GetToken(token):x8}":null};
+                    } else if(operation=="references") {
+                        var h=MetadataTokens.AssemblyReferenceHandle(cursor+1);var a=metadata.GetAssemblyReference(h);
+                        var key=metadata.GetBlobBytes(a.PublicKeyOrToken);
+                        if((a.Flags & System.Reflection.AssemblyFlags.PublicKey)!=0&&key.Length!=0)key=SHA1.HashData(key)[^8..].Reverse().ToArray();
+                        var identity=ImportedResolver.Identity(metadata.GetString(a.Name),a.Version,metadata.GetString(a.Culture),key);
+                        var resolved=resolver.ResolveIdentity(identity);
+                        item=new JsonObject {["token"]=$"0x{MetadataTokens.GetToken(h):x8}",["location"]=Location(h),["name"]=Short(identity),["target_artifact_sha256"]=resolved,["resolution"]=resolved==null?"unresolved":"exact_assembly_identity"};
+                    } else {
+                        var h=MetadataTokens.ManifestResourceHandle(cursor+1);var resource=metadata.GetManifestResource(h);
+                        item=new JsonObject {["token"]=$"0x{MetadataTokens.GetToken(h):x8}",["location"]=Location(h),["name"]=Short(metadata.GetString(resource.Name)),["embedded"]=resource.Implementation.IsNil,["resource_offset"]=resource.Offset,["extraction_status"]="not_requested"};
+                        if(resource.Implementation.IsNil) {
+                            long rva=(long)module.CorHeader.ResourcesDirectory.RelativeVirtualAddress+resource.Offset;
+                            var section=module.Reader.PEHeaders.SectionHeaders.FirstOrDefault(s=>rva>=s.VirtualAddress&&rva-s.VirtualAddress<s.SizeOfRawData);
+                            long start=(long)section.PointerToRawData+rva-section.VirtualAddress;
+                            if(section.SizeOfRawData==0||start<0||start>bytes.Length-4)throw new BadImageFormatException("Resource length outside artifact");
+                            int size=System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan((int)start,4));
+                            if(size<0||size>bytes.Length-start-4||resource.Offset+4L+size>module.CorHeader.ResourcesDirectory.Size||size+4L>section.SizeOfRawData-(rva-section.VirtualAddress))throw new BadImageFormatException("Resource bytes outside directory");
+                            item["file_offset"]=start+4;item["size"]=size;
+                            item["sha256"]=Convert.ToHexStringLower(SHA256.HashData(bytes.AsSpan((int)start+4,size)));
+                            item["extraction_status"]="file_range_identified; use scoped artifact derivation";
+                        }
+                    }
+                    rows.Add(item);
+                    if(Encoding.UTF8.GetByteCount(response.ToJsonString())>outputLimit-1024){rows.RemoveAt(rows.Count-1);response["status"]="partial";break;}cursor++;
+                }
+                response["next_offset"]=cursor<total?cursor:null;response["collection_complete"]=cursor>=total;
+            }
+            else if (operation == "inventory")
             {
                 response["assembly_name"] = metadata.IsAssembly ? Short(metadata.GetString(metadata.GetAssemblyDefinition().Name)) : null;
                 response["assembly_reference_count"] = metadata.AssemblyReferences.Count;
@@ -136,6 +194,7 @@ internal static class Program
                 var handle = MetadataTokens.MethodDefinitionHandle(token & 0xffffff);
                 var method = metadata.GetMethodDefinition(handle);
                 response["method"] = Method(metadata, handle);
+                if(request["pdb"] is JsonObject pdb)response["original_source_mapping"]=PdbMapping.Read(module,token,pdb,cancellation);
                 if (method.RelativeVirtualAddress != 0 && module.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()!.Length > 16384)
                     throw new ArgumentException("Method IL exceeds 16 KiB bound");
                 using var writer = new BoundedWriter(Math.Max(64, (outputLimit - 3072) / 12), cancellation);
@@ -153,25 +212,32 @@ internal static class Program
                 }
                 else
                 {
-                    var resolver = new NoAssemblyResolver();
                     var settings = new DecompilerSettings { ThrowOnAssemblyResolveErrors = false, UseDebugSymbols = false };
                     var decompiler = new CSharpDecompiler(module, resolver, settings) { CancellationToken = cancellation };
                     try
                     {
                         var tree = decompiler.Decompile(handle);
-                        tree.AcceptVisitor(new CSharpOutputVisitor(writer, settings.CSharpFormattingOptions));
+                        tree.AcceptVisitor(new CSharpOutputVisitor(TokenWriter.CreateWriterThatSetsLocationsInAST(writer,"\t"), settings.CSharpFormattingOptions));
+                        var maps=new JsonArray();response["source_il_mappings"]=maps;
+                        foreach(var pair in decompiler.CreateSequencePoints(tree))foreach(var point in pair.Value) {
+                            if(point.IsHidden||pair.Key.Method==null)continue;
+                            if(maps.Count>=128){response["status"]="partial";response["source_mapping_truncated"]=true;break;}
+                            maps.Add(new JsonObject {["method_token"]=$"0x{MetadataTokens.GetToken(pair.Key.Method.MetadataToken):x8}",["il_start"]=point.Offset,["il_end"]=point.EndOffset,["start_line"]=point.StartLine,["start_column"]=point.StartColumn,["end_line"]=point.EndLine,["end_column"]=point.EndColumn});
+                        }
                     }
                     catch (OutputLimitException) { response["status"] = "partial"; response["diagnostic"] = "Pseudocode output truncated"; }
                     response["pseudocode"] = writer.ToString();
                     response["unresolved_reference_requests"] = resolver.RequestCount;
+                    response["resolved_reference_requests"] = resolver.ResolvedCount;
                     response["semantic_completeness"] = "partial";
                     if (resolver.RequestCount != 0) response["status"] = "partial";
-                    response["mapping_scope"] = "selected_method_token_only";
+                    response["mapping_scope"] = "ILSpy generated C# sequence points; 1-based UTF-16 line/columns and half-open IL intervals, not original source";
                 }
             }
             cancellation.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException) { response["status"] = "timeout"; response["diagnostic"] = "Worker wall budget exceeded"; }
+        catch (OutputLimitException) { response["status"] = "partial"; response["diagnostic"] = "Worker output budget exceeded; reduce page size"; }
         catch (Exception error) { response["status"] = "failed"; response["diagnostic"] = Short(error.GetType().Name + ": " + error.Message); }
         string serialized = response.ToJsonString();
         if (Encoding.UTF8.GetByteCount(serialized) + 1 > outputLimit)

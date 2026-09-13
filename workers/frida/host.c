@@ -42,8 +42,8 @@ int main(int argc, char **argv) {
   budget = (guint)strtoul(argv[4], NULL, 10);
   guint timeout = (guint)strtoul(argv[5], NULL, 10);
   if (!budget || budget > 10000 || !timeout || timeout > 60000 ||
-      (strcmp(argv[7], "io") && strcmp(argv[7], "code") &&
-       strcmp(argv[7], "modules") && strcmp(argv[7], "network") && strcmp(argv[7], "config")))
+      (strcmp(argv[7], "io") && strcmp(argv[7], "input") && strcmp(argv[7], "code") &&
+       strcmp(argv[7], "modules") && strcmp(argv[7], "managed") && strcmp(argv[7], "network") && strcmp(argv[7], "config")))
     return 2;
   events = fopen(argv[1], "wbx");
   if (!events)
@@ -66,6 +66,8 @@ int main(int argc, char **argv) {
   frida_spawn_options_set_cwd(spawn, argv[6]);
   frida_spawn_options_set_argv(spawn, argv + 8, argc - 8);
   frida_spawn_options_set_stdio(spawn, FRIDA_STDIO_PIPE);
+  gchar **environment=g_get_environ();environment=g_environ_unsetenv(environment,"INDAGO_FRIDA_STDIN_FILE");
+  frida_spawn_options_set_envp(spawn,environment,g_strv_length(environment));g_strfreev(environment);
   pid = frida_device_spawn_sync(device, argv[8], spawn, NULL, &error);
   g_object_unref(spawn);
   }
@@ -93,6 +95,16 @@ int main(int argc, char **argv) {
   if (error)
     goto done;
   gint64 end = g_get_monotonic_time() + (gint64)timeout * 1000;
+  if(!attached&&g_getenv("INDAGO_FRIDA_STDIN_FILE")) {
+    gchar *input=NULL;gsize length=0;
+    if(!g_file_get_contents(g_getenv("INDAGO_FRIDA_STDIN_FILE"),&input,&length,&error)||length>4096) {
+      g_free(input);script_error=TRUE;goto done;
+    }
+    if(length) {GBytes *bytes=g_bytes_new(input,length);frida_device_input_sync(device,pid,bytes,NULL,&error);g_bytes_unref(bytes);}
+    g_free(input);
+    if(!error){GBytes *eof=g_bytes_new(NULL,0);frida_device_input_sync(device,pid,eof,NULL,&error);g_bytes_unref(eof);}
+    if(error)goto done;
+  }
   while (!detached && !script_error) {
     while (g_main_context_iteration(NULL, FALSE)) {
     }

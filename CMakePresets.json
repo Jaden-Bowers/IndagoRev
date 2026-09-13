@@ -23,6 +23,29 @@
       "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"}
     },
     {
+      "name": "full-base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/out/full-${hostSystemName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "INDAGO_BUILD_TESTS": "ON",
+        "INDAGO_REQUIRE_FULL_ANALYSIS": "ON"
+      }
+    },
+    {
+      "name": "windows-full",
+      "inherits": "full-base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"}
+    },
+    {
+      "name": "linux-full",
+      "inherits": "full-base",
+      "generator": "Ninja",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux"}
+    },
+    {
       "name": "linux-native",
       "displayName": "Linux native core (x86/x64 targets)",
       "inherits": "native-base",
@@ -32,6 +55,8 @@
   ],
   "buildPresets": [
     {"name": "windows-native", "configurePreset": "windows-native", "configuration": "Release", "targets": ["indago"], "jobs": 4},
-    {"name": "linux-native", "configurePreset": "linux-native", "targets": ["indago"], "jobs": 4}
+    {"name": "linux-native", "configurePreset": "linux-native", "targets": ["indago"], "jobs": 4},
+    {"name": "windows-full", "configurePreset": "windows-full", "configuration": "Release", "jobs": 4},
+    {"name": "linux-full", "configurePreset": "linux-full", "jobs": 4}
   ]
 }

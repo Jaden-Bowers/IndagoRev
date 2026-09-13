@@ -1,0 +1,23 @@
+// Own x86 instruction fixtures, never archive targets.
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
+const exe=process.argv[2],root=fs.mkdtempSync(path.resolve('out/expansion-emulation-'));let n=0;
+const native=p=>p.replace(/^([A-Za-z]):/,(_,d)=>'/mnt/'+d.toLowerCase()).replaceAll('\\','/');
+function call(args,r){const f=path.join(root,`r${++n}.json`);if(r)fs.writeFileSync(f,JSON.stringify(r));const p=spawnSync('wsl.exe',['--exec',exe,'--workspace',native(path.join(root,'state')),...args,...(r?['--request',native(f)]:[])],{encoding:'utf8',timeout:30000,maxBuffer:1048576});assert.ifError(p.error);assert([0,3].includes(p.status),p.stdout+p.stderr);return JSON.parse(p.stdout);}
+call(['project','create','--name','emulation']);
+function run(bytes,spec,inputs=[]){const file=path.join(root,`code${n}.bin`);fs.writeFileSync(file,Buffer.from(bytes,'hex'));const t=call(['target','import','--project','emulation','--file',native(file)]);const inv=call(['harness','create'],{project:'emulation',target_id:t.id,objective:'Bounded source-built emulator fixture',required_facts:['emulated state only'],owner:{mode:'external',name:'fixture'},analysis_helpers:true,workbench_mutations:true,budget:{max_actions:2,wall_ms:60000,output_bytes:262144}});
+const action=call(['harness','propose'],{project:'emulation',id:inv.id,owner_token:inv.owner_token,expected_revision:inv.revision,key:'run',proposal:{gap:'emulated state',expected_evidence:'bounded receipt',prediction:'explicit outcome',fallback:'retain partial'},request:{backend:'workbench',operation:'helper.run',arguments:{language:'unicorn-x86',source_code:JSON.stringify(spec),input:{offset:0,max_bytes:bytes.length/2},inputs:inputs.map(i=>({...i,target_id:t.id})),validation:{kind:'none'}}}});
+const current=call(['harness','show','--project','emulation','--id',inv.id]);const result=call(['harness','run'],{project:'emulation',id:inv.id,owner_token:inv.owner_token,expected_revision:current.revision,action_id:action.id});const rec=call(['knowledge','show','--project','emulation','--id',result.result.knowledge_ids[0]]);assert.equal(rec.body.repeatable_observed,true,JSON.stringify(rec.body));assert.equal(rec.body.verified_solve,false);const observed=JSON.parse(Buffer.from(rec.body.output_hex,'hex').toString());fs.writeFileSync(path.join(root,`emulated-${n}.json`),JSON.stringify({observed,receipt:rec},null,2));return observed;}
+const common={base:4096,entry:4096,stop:4104,instructions:32};
+let r=run('b82900000083c001',{...common,bits:32});assert.equal(r.status,'completed');assert.equal(r.registers.eax,42);
+r=run('48c7c0290000004883c001',{...common,bits:64,stop:4107});assert.equal(r.status,'completed');assert.equal(r.registers.rax,42);
+r=run('48c7c0290000004883c001',{...common,bits:64,base:0x140000000,entry:0x140000000,stop:0x14000000b});assert.equal(r.status,'completed');assert.equal(r.registers.rax,42);
+r=run('ebfe',{...common,bits:32,stop:4098,instructions:12});assert.equal(r.status,'partial');assert.equal(r.stop_reason,'instruction_limit');
+r=run('0f05',{...common,bits:64,stop:4098});assert.equal(r.status,'partial');assert.equal(r.stop_reason,'unmodeled_syscall');
+r=run('a100003000',{...common,bits:32,stop:4101});assert.equal(r.status,'partial');assert.match(r.native_error,/unmapped/i);
+r=run('c6050710000090cc',{...common,bits:32,stop:4104,observe:[{address:4103,size:1}]});assert.equal(r.status,'completed');assert.equal(r.memory[0].hex,'90');assert(r.writes.some(w=>w.address===4103));
+const dispatch=Buffer.alloc(33,0x90);Buffer.from('b810100000ffe0','hex').copy(dispatch);Buffer.from('b820100000ebee','hex').copy(dispatch,16);
+r=run(dispatch.toString('hex'),{...common,bits:32,stop:4129,handlers:[{entry:4112,exit:4101,registers:['eax']}]});assert.equal(r.status,'completed');assert(r.dispatcher_candidates.some(c=>c.address===4101&&c.successors.includes(4112)&&c.successors.includes(4128)));assert.equal(r.handler_observations[0].after.registers.eax,4128);
+const large=Buffer.alloc(262144,0x90);Buffer.from('b82900000083c001','hex').copy(large);r=run(large.toString('hex'),{...common,bits:32});assert.equal(r.status,'completed');assert.equal(r.registers.eax,42);
+r=run('e480',{...common,bits:32,stop:4098});assert.equal(r.status,'partial');assert.equal(r.stop_reason,'unmodeled_port_io');
+r=run('a1002000002a000000',{...common,bits:32,stop:4101,memory:[{address:8192,size:4096,input:'table'}]},[{name:'table',offset:5,max_bytes:4}]);assert.equal(r.status,'completed');assert.equal(r.registers.eax,42);
+console.log(JSON.stringify({passed:true,root,cases:11},null,2));

@@ -1,10 +1,14 @@
 #pragma once
 #include "harness_scope.hpp"
 #include "indago/contracts.hpp"
+#include "analysis_helper.hpp"
+#include "harness_experiment.hpp"
+#include "research_workflow.hpp"
+#include "guest.hpp"
 
 namespace indago {
-// A deliberately small native worker capsule. It performs no target execution,
-// arbitrary file access, shell dispatch or inference. Derived-byte imports need
+// A deliberately small native worker capsule. Target execution requires the
+// explicit original-target grant; no arbitrary shell or inference. Derived imports need
 // a separate bounded grant and can only originate from a scoped parent.
 inline wb::J normalize_harness_workbench(const ProjectStore &store,
                                          const wb::J &inv, wb::J req) {
@@ -20,7 +24,7 @@ inline wb::J normalize_harness_workbench(const ProjectStore &store,
   if (req.at("backend") != "workbench" ||
       !std::set<std::string>{"knowledge.put", "knowledge.revise",
                              "validate.compare", "validate.transform",
-                             "transform.run"}
+                             "transform.run", "helper.run", "experiment.run", "experiment.cleanup", "research.run", "guest.run"}
            .contains(op))
     throw std::runtime_error(
         "capability_blocked: workbench mutation not granted");
@@ -64,7 +68,40 @@ inline wb::J normalize_harness_workbench(const ProjectStore &store,
     return d;
   };
   pin({{"type", "artifact"}, {"id", selected["artifact_sha256"]}});
-  if (op == "transform.run") {
+  if (op == "guest.run") {
+#ifndef __linux__
+    throw std::runtime_error("capability_blocked: guest execution requires the Linux CLI; no host fallback");
+#endif
+    keys(args,{"project","scope","body","sealed"});
+    keys(args.at("body"),{"profile","actions","previous","mode"});
+    const auto grants=inv.at("envelope").value("guest_profiles",J::array());
+    if(!grants.is_array()||grants.size()>4||std::find(grants.begin(),grants.end(),args.at("body").at("profile"))==grants.end())throw std::runtime_error("guest profile was not granted by operator");
+    const auto profile=guest_action(store,"show",{{"id",args.at("body").at("profile")}});
+    if(profile.at("image").at("sha256")!=selected.at("artifact_sha256"))throw std::runtime_error("guest image differs from selected investigation target");
+    if(profile.contains("transfer")&&!harness_contains_artifact(inv,profile.at("transfer").at("sha256")))throw std::runtime_error("guest transfer asset must be explicitly admitted to investigation scope");
+    if(profile.contains("transfer"))pin({{"type","artifact"},{"id",profile.at("transfer").at("sha256")}});
+    const J seal{{"profile_sha256",profile.at("profile_sha256")}};
+    if(args.contains("sealed")&&args.at("sealed")!=seal)throw std::runtime_error("guest profile changed");args["sealed"]=seal;
+  } else if (op == "research.run") {
+    args=normalize_research(store,inv,selected,args);
+    std::function<void(const J&)> references=[&](const J &v){
+      if(v.is_object()) {
+        if(v.contains("id")&&v.contains("revision"))pin({{"type","record"},{"id",v.at("id")},{"pin",std::to_string(v.at("revision").get<std::uint64_t>())}});
+        if(v.contains("target_id")) {const auto c=harness_select_component(inv,{{"target_id",v.at("target_id")}});pin({{"type","artifact"},{"id",c.at("artifact_sha256")}});}
+        for(const auto &x:v.items())references(x.value());
+      }else if(v.is_array())for(const auto &x:v)references(x);
+    };references(args.at("body"));
+  } else if (op == "experiment.cleanup") {
+    args=normalize_experiment_cleanup(store,inv,selected,args);
+  } else if (op == "experiment.run") {
+    args=normalize_experiment(store,inv,selected,args);
+  } else if (op == "helper.run") {
+    if(!inv.at("envelope").value("analysis_helpers",false))
+      throw std::runtime_error("capability_blocked: explicit analysis_helpers grant required");
+    args=normalize_helper(store,selected,args,harness_components(inv));
+    for(const auto &input:args.at("sealed").at("inputs"))
+      pin({{"type","artifact"},{"id",input.at("page").at("artifact_sha256")}});
+  } else if (op == "transform.run") {
     const auto grant =
         inv.at("envelope").value("derived_artifacts", J::object());
     if (!grant.value("max_artifacts", 0ULL) || !grant.value("max_bytes", 0ULL))
@@ -78,7 +115,8 @@ inline wb::J normalize_harness_workbench(const ProjectStore &store,
       throw std::runtime_error(
           "transform parent differs from selected component");
     args["artifact"] = selected["artifact_sha256"];
-    if (!std::set<std::string>{"slice", "xor", "hex_decode", "base64_decode"}
+    const bool container=args.at("spec").at("method")=="container_member";
+    if (!std::set<std::string>{"slice", "xor", "hex_decode", "base64_decode", "container_member"}
              .contains(args.at("spec").at("method").get<std::string>()))
       throw std::runtime_error(
           "capability_blocked: transform method is not admitted");
@@ -89,8 +127,8 @@ inline wb::J normalize_harness_workbench(const ProjectStore &store,
           "harness transform input exceeds 4 MiB or is unavailable");
     const auto bytes = static_cast<std::size_t>(q.num(0));
     auto offset = bound(args, "offset", 0, bytes);
-    auto size = bound(args, "size", bytes - offset, 1048576);
-    if (size > 1048576)
+    auto size = bound(args, "size", bytes - offset, container?4194304:1048576);
+    if (size > 1048576&&!container)
       throw std::runtime_error("harness transform selection exceeds 1 MiB; "
                                "provide an explicit range");
     if (size > bytes - offset)
@@ -99,7 +137,7 @@ inline wb::J normalize_harness_workbench(const ProjectStore &store,
     args["size"] = size;
     // All currently admitted methods preserve or shrink the selected byte
     // count.
-    J reservation{{"artifacts", 1}, {"bytes", size}};
+    J reservation{{"artifacts", 1}, {"bytes", container?1048576:size}};
     if (req.contains("derived_reservation") &&
         req["derived_reservation"] != reservation)
       throw std::runtime_error("derived storage reservation mismatch");
@@ -251,9 +289,9 @@ inline wb::J normalize_harness_workbench(const ProjectStore &store,
                                   {"request", args}});
   // Wall time is enforced by the parent; memory remains declared accounting,
   // not an OS quota (including the embedded executable's mapped payload).
-  J budget{{"wall_ms", 10000},
+  J budget{{"wall_ms", (op=="experiment.run"||op=="experiment.cleanup"||op=="guest.run")?40000:op=="helper.run"?20000:10000},
            {"output_bytes", 65536},
-           {"memory_bytes", 67108864},
+           {"memory_bytes", op=="helper.run"?805306368:67108864},
            {"max_items", 16}};
   if (req.contains("budget") && req["budget"] != budget)
     throw std::runtime_error(
@@ -279,6 +317,62 @@ inline wb::J summarize_harness_workbench(const wb::J &req, const wb::J &record,
         {"state", record.at("state")},
         {"freshness", record.at("freshness")},
         {"semantic_entailment_checked", false}};
+  if(op=="guest.run") {
+    const auto &body=record.at("body");out["guest"]={{"id",body.at("id")},{"status",body.at("status")},{"stopped_verified",body.value("stopped_verified",false)},{"verified_solve",false}};
+  }
+  if(op=="research.run") {
+    const auto &body=record.at("body");out["research"]={{"kind",body.at("kind")},{"status",body.at("status")},{"universal_equivalence",false},{"verified_solve",false}};
+    for(const char *key:{"next_action","scope_limit","source_sha256"})if(body.contains(key))out["research"][key]=body.at(key);
+    if(body.contains("suggested_inputs")){out["research"]["suggested_inputs"]=J::array();for(const auto &input:body.at("suggested_inputs"))if(out["research"]["suggested_inputs"].size()<8)out["research"]["suggested_inputs"].push_back(input);}
+    if(body.contains("counterexamples"))out["research"]["counterexample_count"]=body.at("counterexamples").size();
+    if(body.contains("tested_domain"))out["research"]["tested_case_count"]=body.at("tested_domain").size();
+    out["research"]["read"]="research/read with this knowledge id, revision and a bounded body pointer";
+  }
+  if(op=="helper.run") {
+    const auto& body=record.at("body");
+    out["helper"]={{"status",body.at("status")},{"validation_passed",body.at("validation_passed")},
+      {"repeatable_observed",body.at("repeatable_observed")},{"verified_solve",false},
+      {"output_hex",body.value("output_hex",std::string{}).substr(0,1024)},
+      {"output_preview_truncated",body.value("output_hex",std::string{}).size()>1024},
+      {"receipt","retrieve helper/read request:{id:KNOWLEDGE_ID,revision:RECORD_REVISION,pointer:/source_code|/output_hex|/stages/0/result/compile/stderr_hex,offset:0,max_bytes:1024}"}};
+    out["helper"]["untrusted_diagnostic_preview"]=body.value("untrusted_diagnostic_preview",std::string{});
+    if(body.contains("emulation")){
+      const auto &emulation=body.at("emulation");
+      out["helper"]["emulation"]={{"status",emulation.at("status")},{"stop_reason",emulation.at("stop_reason")},{"registers",emulation.at("registers")},{"trace_partial",emulation.at("trace_partial")},{"receipt_pointer","/emulation"}};
+    }
+  }
+  if(op=="experiment.cleanup") {
+    out["cleanup"]={{"status",record.at("body").at("status")},{"after",record.at("body").at("after")}};
+  }
+  if(op=="experiment.run") {
+    const auto &body=record.at("body");
+    out["experiment"]={{"status",body.at("status")},{"comparison",body.at("comparison")},
+      {"outcome_unknown",body.at("outcome_unknown")},{"verified_solve",false}};
+    out["runtime_sessions"]=wb::J::array();
+    out["experiment"]["case_previews"]=wb::J::array();
+    std::size_t case_index=0;
+    for(const auto &c:body.at("cases")) {
+      wb::J preview{{"index",case_index},{"label",c.at("label")},{"status",c.value("status",std::string("unknown"))},
+        {"receipt_pointer","/cases/"+std::to_string(case_index++)}};
+      if(c.contains("state")&&c.at("state").contains("observation")) {
+        const auto &data=c.at("state").at("observation").at("data");
+        preview["output_hex"]=data.value("output_hex",std::string{}).substr(0,512);
+        preview["output_preview_truncated"]=data.value("output_hex",std::string{}).size()>512;
+        preview["complete"]=data.value("complete",false);preview["operator_accepted"]=data.value("accepted",false);
+      }
+      out["experiment"]["case_previews"].push_back(preview);
+      if(c.contains("code_recoveries"))out["experiment"]["case_previews"].back()["code_recoveries"]=c.at("code_recoveries").size();
+      if(c.contains("input_solutions")) {
+        auto &solutions=out["experiment"]["case_previews"].back()["input_solutions"];solutions=wb::J::array();
+        for(const auto &s:c.at("input_solutions"))solutions.push_back({{"session",c.at("session")},{"observation",s.at("id")},{"status",s.at("status")},
+          {"results",s.at("data").at("results")},{"usage","Replay with case.solver_candidate:{session,observation,terminal:0,branch:0|1,candidate:0} and the original baseline input_hex. Equality is branch 0; counterexample is branch 1. Acceptance needs original-target oracle."}});
+      }
+      if(c.contains("session"))out["runtime_sessions"].push_back(c.at("session"));
+      if(c.contains("replay_session"))out["runtime_sessions"].push_back(c.at("replay_session"));
+      for(const auto &peer:c.value("companions",wb::J::array()))out["runtime_sessions"].push_back(peer.at("id"));
+    }
+    out["experiment"]["reporting"]="Use returned knowledge_ids as evidence_ids for a PARTIAL observation report. These typed receipts never establish an answered/verified solve. Case indices are numeric (0,1), not labels; use experiment/read for narrower pointers only if the previews are insufficient.";
+  }
   if (op == "transform.run") {
     out["derived_artifact"] = {
         {"target_id", native.at("target_id")},
@@ -306,6 +400,29 @@ inline wb::J execute_harness_workbench(StaticService &service,
                                        const wb::J &req) {
   const auto op = req.at("operation").get<std::string>();
   const auto dot = op.find('.');
+  if(op=="guest.run") {
+    const auto &args=req.at("arguments");const auto profile=guest_action(service.store(),"show",{{"id",args.at("body").at("profile")}});
+    if(profile.at("profile_sha256")!=args.at("sealed").at("profile_sha256"))throw std::runtime_error("guest profile changed before execution");
+    auto body=guest_action(service.store(),"run",args.at("body"));body["request_sha256"]=sha256_text(args.dump());
+    auto record=wb::knowledge_put(service.store(),{{"project",args.at("project")},{"kind","product"},{"state","unknown"},{"title","Bounded QEMU guest experiment"},{"scope",args.at("scope")},{"body",body},{"dependencies",req.at("dependency_pins")},{"author","native-guest"}},true);
+    auto result=summarize_harness_workbench(req,record,record);result["guest"]={{"id",body.at("id")},{"status",body.at("status")},{"stopped_verified",body.value("stopped_verified",false)}};return result;
+  }
+  if(op=="research.run") {
+    auto record=execute_research(service.store(),req.at("arguments"));
+    return summarize_harness_workbench(req,record,record);
+  }
+  if(op=="experiment.cleanup") {
+    auto record=cleanup_experiment(service.store(),req.at("arguments"));
+    auto result=summarize_harness_workbench(req,record,record);result["cleanup_status"]=record.at("body").at("status");return result;
+  }
+  if(op=="experiment.run") {
+    auto record=execute_experiment(service.store(),req.at("arguments"));
+    return summarize_harness_workbench(req,record,record);
+  }
+  if(op=="helper.run") {
+    auto record=execute_helper(service.store(),req.at("arguments"));
+    return summarize_harness_workbench(req,record,record);
+  }
   auto native =
       workbench_action(service, op.substr(0, dot),
                        op == "knowledge.revise" ? "put" : op.substr(dot + 1),
@@ -359,6 +476,21 @@ inline wb::J recover_harness_publication(StaticService &service,
     native = {{"target_id", target.text(0)},
               {"artifact_sha256", body.at("output_artifact")},
               {"mapping", body.at("mapping")}};
+  } else if (op=="guest.run") {
+    if(record.at("kind")!="product"||record.at("body").at("schema")!="indago.guest-run.v1"||record.at("body").at("request_sha256")!=sha256_text(req.at("arguments").dump()))throw std::runtime_error("guest publication differs from request");
+  } else if (op=="research.run") {
+    if(record.at("kind")!="product"||record.at("body").at("schema")!="indago.research.v1"||record.at("body").at("request_sha256")!=sha256_text(req.at("arguments").dump()))throw std::runtime_error("research publication differs from request");
+  } else if (op=="experiment.cleanup") {
+    if(record.at("kind")!="product"||record.at("body").at("schema")!="indago.experiment-cleanup.v1"||record.at("body").at("request_sha256")!=sha256_text(req.at("arguments").dump()))throw std::runtime_error("cleanup publication differs from request");
+  } else if (op=="experiment.run") {
+    const auto &body=record.at("body");
+    if(record.at("kind")!="product"||body.at("schema")!="indago.experiment.v1"||body.at("request_sha256")!=sha256_text(req.at("arguments").dump()))
+      throw std::runtime_error("experiment publication differs from request");
+  } else if (op=="helper.run") {
+    const auto& body=record.at("body");
+    if(record.at("kind")!="product" || body.at("schema")!="indago.helper-run.v1" ||
+       body.at("request_sha256")!=sha256_text(req.at("arguments").dump()))
+      throw std::runtime_error("helper publication differs from request");
   } else if (((op == "knowledge.put" || op == "knowledge.revise") &&
               record.at("kind") != req.at("arguments").at("kind")) ||
              ((op == "validate.compare" || op == "validate.transform") &&

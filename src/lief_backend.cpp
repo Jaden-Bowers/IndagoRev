@@ -1,6 +1,7 @@
 #include "indago/lief.hpp"
 #include "indago/airece.hpp"
 #include <algorithm>
+#include "isolated_worker.hpp"
 namespace indago {
 CommandResult query_lief(const TargetRecord& target,const nlohmann::json& request,const fs::path& cancel) {
     using J=nlohmann::json;
@@ -13,7 +14,7 @@ CommandResult query_lief(const TargetRecord& target,const nlohmann::json& reques
     const J query{{"path",target.object_path.string()},{"sha256",target.sha256},{"operation",request.at("operation")},
         {"offset",request.at("arguments").value("offset",0)},{"limit",std::min<std::size_t>(request.at("budget").at("max_items").get<std::size_t>(),128)},
         {"output_bytes",options.max_output_bytes}};
-    const auto native=run_native_process(*executable,{"__lief",query.dump()},options);
+    const auto native=run_readonly_parser(*executable,{"__lief",query.dump()},{target.object_path},options);
     J result{{"backend","lief"},{"artifact_sha256",target.sha256}};
     if(native.cancelled)result["status"]="cancelled";
     else if(native.timed_out)result["status"]="timeout";
@@ -28,6 +29,11 @@ CommandResult query_lief(const TargetRecord& target,const nlohmann::json& reques
     result["worker"]={{"isolated_process",true},{"security_sandbox",false},{"memory_limit_enforced",false},
         {"wall_ms",options.wall_time_ms},{"output_bytes",options.max_output_bytes},{"exit_code",native.exit_code},
         {"cancelled",native.cancelled},{"timed_out",native.timed_out},{"output_truncated",native.truncated}};
+#ifdef __linux__
+    result["worker"]["security_sandbox"]=true;result["worker"]["memory_limit_enforced"]=true;result["worker"]["profile"]="linux-parser-bwrap-cgroup-v1";
+#else
+    result["worker"]["memory_limit_enforced"]=true;result["worker"]["memory_scope"]="per-process committed memory only";
+#endif
     const auto state=result.at("status").get<std::string>();
     return {state=="completed"?0:state=="partial"?3:state=="cancelled"?130:1,state,result.dump()};
 #else

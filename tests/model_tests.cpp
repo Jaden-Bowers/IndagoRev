@@ -600,6 +600,10 @@ int main() {
           if (mutations)
             feedback =
                 J::parse(body["messages"].back()["content"].get<std::string>());
+          // The bounded controller may compact the tool-call envelope while
+          // retaining this exact native receipt. Exercise both transport forms.
+          if(feedback.is_object()&&feedback.contains("previous_tool_result"))
+            feedback=feedback.at("previous_tool_result");
           J tool_request;
           if (mutations == 0)
             tool_request = {
@@ -658,6 +662,34 @@ int main() {
         });
     check(mutations == 5 && result["status"] == "partial",
           "offline model completes note, counterexample and revision loop");
+    auto helper_create=general_create;helper_create["workbench_mutations"]=true;helper_create["analysis_helpers"]=true;
+    auto helper_inv=harness_action(svc,"create",helper_create);investigations.push_back(helper_inv);
+    auto helper_run=makeRun(helper_inv);helper_run["recipe"]="general";helper_run["max_generations"]=4;
+    unsigned helper_turn=0;
+    auto helper_result=harness_explore(svc,helper_run,[&](const J&,const J& body,const ModelCancel&){
+      if(helper_turn++==0)return response(decision("plan",{{"collection","tasks"},{"records",J::array({
+        {{"id","helper"},{"question","Cross-check original bytes"},{"summary","Use an isolated copy helper"},
+         {"status","open"},{"depends_on",J::array()},{"priority",8}}})}}));
+      if(helper_turn==2) {
+        J helper_args{{"language","c17"},
+          {"source_code","#include <stdio.h>\nint main(void){int c;while((c=getchar())!=EOF)putchar(c);}"},
+          {"input",{{"offset",0},{"max_bytes",4}}},
+          {"validation",{{"kind","artifact_bytes"},{"expected",{{"offset",0},{"max_bytes",4}}}}}};
+        J helper_request{{"backend","workbench"},{"operation","helper.run"},{"arguments",helper_args}};
+        return response(decision("analyze",{
+          {"proposal",{{"gap","helper"},{"expected_evidence","receipt"},{"prediction","same bytes"},{"fallback","retain gap"}}},
+          {"request",helper_request}}));
+      }
+      const auto feedback=J::parse(body.at("messages").back().at("content").get<std::string>());
+      check(feedback.contains("helper"),"general controller did not dispatch helper action");
+#ifdef __linux__
+      check(feedback.at("helper").at("validation_passed").get<bool>(),"model helper copy validation failed");
+#else
+      check(feedback.at("helper").at("status")=="capability_blocked","model helper used host fallback");
+#endif
+      return response(finish);
+    });
+    check(helper_turn==3&&helper_result.at("status")=="partial",("single-model helper roundtrip failed: turns="+std::to_string(helper_turn)+" "+helper_result.dump()).c_str());
     atomic_write(root / "wrapped.bin",
                  "XX" + wb::read(first_target.object_path, 4194304));
     auto wrapped = svc.store().import_target("demo", root / "wrapped.bin");
@@ -678,6 +710,8 @@ int main() {
           if (derivations)
             feedback =
                 J::parse(body["messages"].back()["content"].get<std::string>());
+          if(feedback.is_object()&&feedback.contains("previous_tool_result"))
+            feedback=feedback.at("previous_tool_result");
           J req;
           if (derivations == 0)
             req = {{"backend", "workbench"},

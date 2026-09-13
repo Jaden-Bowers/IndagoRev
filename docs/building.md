@@ -22,6 +22,17 @@ memory-constrained machines.
 
 ## Optional embedded tool bundles
 
+For full analysis, stage every listed engine plus the
+[emulation worker](pre-task8-and-protection.md), then configure and build with
+`windows-full` or `linux-full`. These presets reject missing required capabilities
+and produce `capabilities.full.json` in the build directory. QEMU and rr remain
+separate optional environment profiles. Node is required for this packaging check.
+For an existing build, use
+`node tools/check-build-capabilities.cjs EXE full MANIFEST.json`.
+The equivalent explicit CMake option is `-DINDAGO_REQUIRE_FULL_ANALYSIS=ON`.
+This is an availability gate, not production qualification. Publish the portable
+manifest instead of raw capabilities output, which may contain local host paths.
+
 The minimal native executable is not the complete development bundle. Missing
 engines are reported by `capabilities` and `runtime capabilities`; they are not
 silently supplied by a fresh clone. Windows native builds include the checked-in

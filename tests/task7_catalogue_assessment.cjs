@@ -1,0 +1,10 @@
+// Read-only catalogue assessment. Prepares bytes only; never executes a challenge.
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
+const [exe]=process.argv.slice(2),root=fs.mkdtempSync(path.resolve('out/task7-catalogue-'));let n=0;
+function call(args,r){const f=path.join(root,`r${++n}.json`);if(r)fs.writeFileSync(f,JSON.stringify(r));const p=spawnSync(exe,['--workspace',path.join(root,'state'),...args,...(r?['--request',f]:[])],{encoding:'utf8',timeout:65000,maxBuffer:4194304});assert.ifError(p.error);assert([0,3].includes(p.status),p.stdout+p.stderr);const result=JSON.parse(p.stdout);fs.writeFileSync(path.join(root,`o${n}.json`),JSON.stringify(result,null,2));return result;}
+call(['project','create','--name','assessment']);const rows=[];
+for(const challenge of ['flare-2018-01','flare-2019-03','flare-2020-05']){
+ const destination=path.join(root,challenge);const prepared=call(['benchmark','prepare'],{catalogue:path.resolve('config/flare-on-2014-2024.catalogue.json'),corpus_root:path.resolve('flare-on-chals/Flare-On-Challenges/Challenges'),archive_tool:'C:/Program Files/7-Zip/7z.exe',challenge,destination,max_bytes:16777216,wall_ms:60000});assert.equal(prepared.status,'completed');
+ for(const member of prepared.artifacts){if(!/\.(jar|apk|tpk)$/i.test(member.path))continue;const t=call(['target','import','--project','assessment','--file',path.join(destination,member.path)]);const listing=call(['action','run'],{project:'assessment',target_id:t.id,backend:'ilspy',operation:'artifact',budget:{max_items:128,wall_ms:10000,output_bytes:131072,memory_bytes:268435456}});rows.push({challenge,parent:member.parent_sha256,artifact:member.sha256,items:listing.data.items,next_offset:listing.data.next_offset??null,execution_authorized:false});}
+}
+fs.writeFileSync(path.join(root,'assessment.json'),JSON.stringify({catalogue_sha256:'58e5f957f264e47052fdeb652a76fc9353d010655c51ea0b8da5471ec20bb3a1',rows,benchmark_modified:false,target_executed:false},null,2));console.log(JSON.stringify({passed:true,root,containers:rows.length}));

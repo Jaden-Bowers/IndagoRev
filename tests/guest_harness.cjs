@@ -1,0 +1,17 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
+const [exe,image]=process.argv.slice(2),root=fs.mkdtempSync(path.resolve('out/guest-harness-'));let n=0;
+const native=p=>p.replace(/^([A-Za-z]):/,(_,d)=>'/mnt/'+d.toLowerCase()).replaceAll('\\','/');
+function call(args,r,reject=false){const f=path.join(root,`r${++n}.json`);if(r)fs.writeFileSync(f,JSON.stringify(r));const p=spawnSync('wsl.exe',['--exec',exe,'--workspace',native(path.join(root,'state')),...args,...(r?['--request',native(f)]:[])],{encoding:'utf8',timeout:45000,maxBuffer:4194304});assert.ifError(p.error);if(reject){assert(![0,3].includes(p.status),p.stdout);return;}assert([0,3].includes(p.status),p.stdout+p.stderr);const result=JSON.parse(p.stdout);fs.writeFileSync(path.join(root,`o${n}.json`),JSON.stringify(result,null,2));return result;}
+call(['project','create','--name','guest']);const target=call(['target','import','--project','guest','--file',image]);const profile=call(['guest','create'],{image:{path:image,sha256:target.artifact_sha256},machine:'pc-i440fx-10.2',accelerator:'kvm',trusted_guest:true});assert(profile.libraries);
+const spec={project:'guest',target_id:target.id,objective:'Bounded trusted boot fixture',required_facts:['serial fixture receipt'],owner:{mode:'external',name:'guest test'},workbench_mutations:true,budget:{max_actions:2,wall_ms:120000,output_bytes:262144}};
+const denied=call(['harness','create'],spec),allowed=call(['harness','create'],{...spec,guest_profiles:[profile.id]});
+assert.equal(denied.envelope.target_execution,false);assert.equal(allowed.envelope.guest_execution,true);assert.equal(allowed.envelope.target_execution,true);assert(!allowed.envelope.runtime_execution);
+function propose(inv,body,reject=false){return call(['harness','propose'],{project:'guest',id:inv.id,owner_token:inv.owner_token,expected_revision:inv.revision,key:'guest',proposal:{gap:'boot behavior',prediction:'serial output',expected_evidence:'bounded QEMU receipt',fallback:'retain partial'},request:{backend:'workbench',operation:'guest.run',arguments:{body}}},reject);}
+propose(denied,{profile:profile.id,actions:[{operation:'observe'}]},true);
+const a=propose(allowed,{profile:profile.id,actions:[{operation:'observe',duration_ms:600}]});const result=call(['harness','run'],{project:'guest',id:allowed.id,owner_token:allowed.owner_token,expected_revision:a.investigation_revision,action_id:a.id});assert.equal(result.result.guest.status,'completed',JSON.stringify(result));
+const record=call(['knowledge','show','--project','guest','--id',result.result.knowledge_ids[0]]);assert.equal(record.body.verified_solve,false);assert(record.body.stopped_verified);
+const exported=call(['guest','export'],{id:record.body.id,project:'guest'});assert.equal(exported.artifact_sha256,record.body.serial.sha256);assert.equal(exported.lineage.semantic_equivalence,false);
+call(['guest','run'],{profile:profile.id,actions:[{operation:'human-monitor-command',command:'info version'}]},true);
+call(['guest','run'],{profile:profile.id,mode:'record'},true);
+call(['guest','create'],{image:{path:image,sha256:'0'.repeat(64)},machine:'pc-i440fx-10.2',accelerator:'kvm',trusted_guest:true},true);
+fs.writeFileSync(path.join(root,'summary.json'),JSON.stringify({passed:true,root,profile:profile.id,guest:record.body,exported},null,2));console.log(JSON.stringify({passed:true,root}));

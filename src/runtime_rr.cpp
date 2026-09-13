@@ -6,6 +6,7 @@
 #ifndef _WIN32
 #include <sys/resource.h>
 #include <unistd.h>
+#include <fcntl.h>
 #endif
 namespace indago {
 using J=RuntimeJson;
@@ -17,6 +18,13 @@ int rr_exec_worker(const J& request) {
     replay::unlinked_path(trace);replay::unlinked_path(scratch);
     std::vector<std::string> args{engine.string()};
     if(operation=="record") {
+        if(request.contains("stdin_file")) {
+          const int input=open(request.at("stdin_file").get<std::string>().c_str(),O_RDONLY);
+          if(input<0||dup2(input,0)<0)throw std::runtime_error("rr stdin delivery failed");close(input);
+          if(clearenv())throw std::runtime_error("rr environment replacement failed");
+          for(auto it=request.at("environment").begin();it!=request.at("environment").end();++it)
+            if(setenv(it.key().c_str(),it.value().get<std::string>().c_str(),1))throw std::runtime_error("rr environment delivery failed");
+        }
         const fs::path file=request.at("file").get<std::string>();
         if(!file.is_absolute()||sha256_file(file)!=request.at("artifact_sha256").get<std::string>())throw std::runtime_error("rr launch image identity changed");
         args.insert(args.end(),{"record","-o",trace.string(),file.string()});
@@ -74,7 +82,7 @@ J run_rr_session(const fs::path& directory,const J& request,const std::function<
             if(elapsed()>=static_cast<std::int64_t>(wall)){result["status"]="partial";result["timed_out"]=true;return false;}
             phase({{"phase",name},{"trace_directory",trace.string()}});
             J command{{"phase",name},{"trace",trace.string()},{"scratch",scratch.path.string()}};
-            if(name=="record")for(const auto* key:{"file","artifact_sha256","cwd","argv"})if(request.contains(key))command[key]=request.at(key);
+            if(name=="record")for(const auto* key:{"file","artifact_sha256","cwd","argv","stdin_file","environment"})if(request.contains(key))command[key]=request.at(key);
             const auto remaining=static_cast<std::int64_t>(wall)-elapsed();
             if(remaining<=0){result["status"]="partial";result["timed_out"]=true;return false;}
             NativeProcessOptions options;options.wall_time_ms=static_cast<std::uint64_t>(remaining);options.max_output_bytes=32768;options.should_cancel=stop;

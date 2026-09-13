@@ -11,6 +11,7 @@ endforeach()
 set(AIRECE_ZYDIS_VERSION "5.0.0")
 set(AIRECE_Z3_VERSION "5.0.0")
 get_target_property(_z3_dir libz3 SOURCE_DIR)
+target_include_directories(indago_core PRIVATE "${_z3_dir}/api")
 execute_process(COMMAND git -C "${_z3_dir}/.." rev-parse HEAD
     OUTPUT_VARIABLE AIRECE_Z3_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 if(NOT AIRECE_Z3_REVISION)

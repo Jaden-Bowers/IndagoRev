@@ -83,6 +83,7 @@ public:
 };
 class DbgEngRuntime final : public RuntimeBackend {
   HMODULE library_{};
+  HANDLE pending_launch_{};
   Events events_;
   DebugOutput output_;
   ComPtr<IDebugClient5> client_;
@@ -107,6 +108,7 @@ class DbgEngRuntime final : public RuntimeBackend {
 public:
   ~DbgEngRuntime() override { close(); }
   void close() {
+    if(pending_launch_){TerminateProcess(pending_launch_,126);CloseHandle(pending_launch_);pending_launch_=nullptr;}
     if (client_) {
       if (alive_)
         client_->DetachProcesses();
@@ -168,9 +170,36 @@ public:
       auto cwd = fs::path(r.value("cwd", file.parent_path().string()));
       DEBUG_CREATE_PROCESS_OPTIONS options{};
       options.CreateFlags = (r.value("follow_children",false)?DEBUG_PROCESS:DEBUG_ONLY_THIS_PROCESS) | CREATE_NO_WINDOW;
-      checked(client_->CreateProcessAndAttach2Wide(0, command.data(), &options,
+      struct StandardHandles {
+        HANDLE previous[3]{},opened[3]{};DWORD ids[3]{STD_INPUT_HANDLE,STD_OUTPUT_HANDLE,STD_ERROR_HANDLE};
+        ~StandardHandles(){for(unsigned i=0;i<3;++i)if(opened[i]&&opened[i]!=INVALID_HANDLE_VALUE){SetStdHandle(ids[i],previous[i]);CloseHandle(opened[i]);}}
+      } handles;
+      std::vector<wchar_t> environment;
+      if(r.contains("input_manifest")) {
+        SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES),nullptr,TRUE};
+        const char *names[]{"stdin_file","stdout_file","stderr_file"};
+        for(unsigned i=0;i<3;++i) {
+          handles.previous[i]=GetStdHandle(handles.ids[i]);
+          handles.opened[i]=CreateFileW(fs::path(r.at(names[i]).get<std::string>()).c_str(),i?GENERIC_WRITE:GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&security,i?CREATE_NEW:OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+          if(handles.opened[i]==INVALID_HANDLE_VALUE||!SetStdHandle(handles.ids[i],handles.opened[i]))throw std::runtime_error("DbgEng standard handle setup failed");
+        }
+        options.EngCreateFlags|=DEBUG_ECREATE_PROCESS_INHERIT_HANDLES;
+        options.CreateFlags|=CREATE_UNICODE_ENVIRONMENT;
+        for(auto it=r.at("environment").begin();it!=r.at("environment").end();++it){auto entry=fs::path(it.key()+"="+it.value().get<std::string>()).wstring();environment.insert(environment.end(),entry.begin(),entry.end());environment.push_back(0);}
+        environment.push_back(0);if(environment.size()==1)environment.push_back(0);
+      }
+      if(r.contains("input_manifest")) {
+        if(r.value("follow_children",false))throw std::runtime_error("controlled-input DbgEng launch does not yet support child following");
+        STARTUPINFOW startup{};startup.cb=sizeof(startup);startup.dwFlags=STARTF_USESTDHANDLES;
+        startup.hStdInput=handles.opened[0];startup.hStdOutput=handles.opened[1];startup.hStdError=handles.opened[2];
+        PROCESS_INFORMATION process{};
+        if(!CreateProcessW(file.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_SUSPENDED|CREATE_NO_WINDOW|CREATE_UNICODE_ENVIRONMENT,environment.data(),cwd.c_str(),&startup,&process))
+          throw std::runtime_error("controlled debugger launch failed: "+std::to_string(GetLastError()));
+        pending_launch_=process.hProcess;CloseHandle(process.hThread);
+        checked(client_->AttachProcess(0,process.dwProcessId,DEBUG_ATTACH_INVASIVE_RESUME_PROCESS),"attach controlled launch");
+      } else checked(client_->CreateProcessAndAttach2Wide(0, command.data(), &options,
                                                    sizeof(options), cwd.c_str(),
-                                                   nullptr, 0, 0),
+                                                   environment.empty()?nullptr:environment.data(), 0, 0),
               "launch");
     }
     alive_ = true;
@@ -179,6 +208,7 @@ public:
     if (hr != S_OK)
       throw std::runtime_error("DbgEng initial stop deadline exceeded");
     checked(system_->GetCurrentProcessSystemId(&pid_), "process ID");
+    if(pending_launch_){CloseHandle(pending_launch_);pending_launch_=nullptr;}
     events_.initial_stop=false;
     ULONG64 process_handle{};
     BOOL is_wow{};

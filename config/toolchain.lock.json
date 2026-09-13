@@ -86,7 +86,7 @@
     },
     "xair_sym": {
       "path": "xair/XAIR_SYM",
-      "revision": "624040c9cdaf9f0e4d21e23b654a95f5c1a32997",
+      "revision": "c9569b37bfd2f065863942c9f498333f3e2b9f6a",
       "airece_expected_revision": "b9ee5488ba6141e4429bcbbf80a7bdfb73093242"
     },
     "z3": {

@@ -84,7 +84,7 @@ Notable final runs:
 - Linux aggregate: `out/harness-linux-qualification.log`; detailed logs and fresh
   fixtures: WSL `/tmp/indago-linux-qualification.wBdz4O/`.
 - Builds: `out/harness-final-build.log`, `out/harness-tests-build.log`, and
-  WSL `/home/jaden/.cache/indago/harness-build.log`.
+  WSL `<INDAGO_BUILD_CACHE>/harness-build.log`.
 
 Test workspaces are retained in the log-reported temporary locations. No material
 user files were deleted. The retention unit test moves only its own synthetic orphan

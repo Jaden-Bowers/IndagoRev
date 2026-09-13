@@ -1,5 +1,9 @@
 # Offline network evidence
 
+Later Linux workers use the [scoped parser profile](pre-task8-and-protection.md).
+Statements below about missing OS quotas describe the original increment;
+Windows remains a distinct, non-filesystem-sandboxed profile.
+
 The `wireshark` adapter uses a privately bundled upstream TShark 4.6.8 worker:
 the official Windows package and a source-built native Linux offline profile. The
 native application remains C++20; this is an upstream native dissector integration,

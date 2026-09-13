@@ -1,4 +1,5 @@
 #pragma once
+#include "artifact_route.hpp"
 #include "indago/airece.hpp"
 #include <algorithm>
 #include <chrono>
@@ -214,6 +215,18 @@ inline J grade(const J &r) {
     {"limitations",J::array({"Independent operator supplies expected-answer digest; no expected answer is exposed to the harness", "Fixed-answer grading does not prove solver correctness, behavior, clean-room execution, or absence of model training contamination"})}};
 }
 inline J action(const std::string &op,const J &r) {
+  if(op=="coverage") {
+    const auto catalogue=load(r.at("catalogue").get<std::string>());verify_catalogue(catalogue);
+    J rows=J::array();std::map<std::string,std::set<std::string>> families;
+    for(const auto &challenge:catalogue.at("challenges"))for(const auto &container:challenge.at("artifacts"))for(const auto &member:container.value("members",J::array())) {
+      if(rows.size()>=4096)throw std::runtime_error("Catalogue coverage row bound exceeded");
+      auto route=artifact_route_hint(member.at("path").get<std::string>());
+      families[route.at("kind").get<std::string>()].insert(challenge.at("id").get<std::string>());
+      rows.push_back({{"challenge",challenge.at("id")},{"container_sha256",container.at("sha256")},{"member",member.at("path")},{"assessment",route}});
+    }
+    J summary=J::object();for(const auto &[kind,ids]:families)summary[kind]=ids;
+    return {{"schema","indago.catalogue-coverage.v1"},{"catalogue_sha256",catalogue.at("catalogue_sha256")},{"denominator",catalogue.at("denominator")},{"families",summary},{"artifacts",rows},{"all_formats_supported",false},{"limitation","Frozen filename inventory, not confirmed parser/runtime coverage; nested contents require materialization"}};
+  }
   if(op=="freeze")return freeze(r);
   if(op=="prepare")return prepare(r);
   if(op=="grade")return grade(r);

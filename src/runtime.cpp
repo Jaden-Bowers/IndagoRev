@@ -5,6 +5,7 @@
 #include "indago/storage_lease.hpp"
 #include "indago/replay.hpp"
 #include "runtime_call_identity.hpp"
+#include "runtime_inputs.hpp"
 #include <chrono>
 #include <fstream>
 #include <future>
@@ -706,6 +707,11 @@ int instrument_worker(ProjectStore &store, Db &db, J &session) {
                              {id})[0]["cancel"];
     NativeProcessOptions options;
     options.wall_time_ms = timeout + 10000;
+    if(r.contains("input_manifest")) {
+      options.stdin_file=r.at("stdin_file").get<std::string>();options.clear_environment=true;
+      for(auto it=r.at("environment").begin();it!=r.at("environment").end();++it)options.environment[it.key()]=it.value().get<std::string>();
+      if(frida)options.environment["INDAGO_FRIDA_STDIN_FILE"]=r.at("stdin_file").get<std::string>();
+    }
     options.max_output_bytes = 65536;
     auto task = std::async(std::launch::async, [&] {
       return run_native_process(host, arguments, options);
@@ -986,7 +992,7 @@ J runtime_capabilities() {
             {"scope", "bounded block entries, attempted memory effects and native call/return/indirect transfers; single process"}}},
           {"frida",
            {{"bundled", INDAGO_HAS_FRIDA != 0},
-            {"recipes", {"io", "code", "modules", "config", "network"}},
+            {"recipes", {"io", "input", "code", "modules", "managed", "config", "network"}},
             {"modes", {"spawn","attach"}},
             {"network",{{"socket_identities","collection-local observed generations; aliases/inheritance incomplete"},
                         {"tracked_sockets",1024},{"buffer_bytes",64},{"sockaddr_bytes",128},
@@ -1024,7 +1030,7 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
   if (op == "payloads")
     return bundled_payload_inventory();
   if (op == "recipes")
-    return {{"recipes", {"io", "code", "modules", "config", "network"}},
+    return {{"recipes", {"io", "input", "code", "modules", "managed", "config", "network"}},
             {"backend", "frida"},
             {"limits", "1..10000 events, 1..60000ms, code read <=4096 bytes, "
                        "buffers <=64 bytes"}};
@@ -1033,7 +1039,7 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
   Db db(store);
   if(op=="io-run") {
     const std::set<std::string> allowed{"schema","operation","project","file","artifact","argv","input_hex",
-      "timeout_ms","max_output_bytes","trusted_target_ack","acceptance_oracle","cancel_file"};
+      "timeout_ms","max_output_bytes","trusted_target_ack","acceptance_oracle","cancel_file","environment","files","experiment_key","managed_trace"};
     for(auto it=r.begin();it!=r.end();++it)if(!allowed.contains(it.key()))throw std::runtime_error("Unsupported io-run field: "+it.key());
     if(!r.value("trusted_target_ack",false))throw std::runtime_error("io-run requires trusted_target_ack; this is not a sandbox");
     auto read_bounded=[](const fs::path &path,std::size_t bound) {
@@ -1088,18 +1094,58 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
     db.run("INSERT INTO runtime_sessions(id,project,record) VALUES(?,?,?)",{id,project,s.dump()});
     try {
       NativeProcessOptions options;options.wall_time_ms=r.value("timeout_ms",5000u)/(oracle.is_null()?1:2);
+      if(r.contains("environment")) {
+        options.clear_environment=true;
+        for(auto it=r.at("environment").begin();it!=r.at("environment").end();++it) {
+          const auto value=it.value().get<std::string>();
+          if(it.key().empty()||it.key().size()>64||value.size()>1024||it.key().find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")!=std::string::npos||value.find('\0')!=std::string::npos)
+            throw std::runtime_error("Invalid I/O environment entry");
+          options.environment[it.key()]=value;
+        }
+      }
       if(!options.wall_time_ms)throw std::runtime_error("Insufficient two-run timeout budget");
       options.max_output_bytes=r.value("max_output_bytes",65536u);
       if(r.contains("cancel_file"))options.cancel_file=fs::absolute(r.at("cancel_file").get<std::string>());
       auto execute=[&](const std::string &bytes,const std::string &name) {
         options.working_directory=directory/name;fs::create_directory(options.working_directory);
+        const auto files=r.value("files",J::object());
+        for(auto it=files.begin();it!=files.end();++it) {
+          if(it.key().empty()||it.key().size()>64||it.key().find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)
+            throw std::runtime_error("I/O input files require plain names");
+          atomic_write(options.working_directory/it.key(),unhex(it.value().get<std::string>()));
+        }
         options.stdin_file=directory/(name+".stdin");atomic_write(options.stdin_file,bytes);
+        const auto trace_path=fs::absolute(options.working_directory/"managed.nettrace");
+        const bool managed=r.value("managed_trace",false);
+        if(managed) {
+          options.environment["DOTNET_EnableEventPipe"]="1";
+          options.environment["DOTNET_EventPipeOutputPath"]=trace_path.string();
+          options.environment["DOTNET_EventPipeConfig"]="Microsoft-Windows-DotNETRuntime:0x8018:5";
+          options.environment["DOTNET_EventPipeCircularMB"]="4";
+          options.environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"]=(directory/"managed-bundle").string();
+          options.should_cancel=[&]{std::error_code error;auto size=fs::file_size(trace_path,error);return !error&&size>16777216;};
+        }
         const auto result=run_native_process(staged,args,options);
+        options.should_cancel={};
         J data{{"producer","indago/bounded-stdio-v1"},{"artifact_sha256",artifact},{"input_channel","stdin_file"},
           {"input_hex",hex(bytes)},{"output_hex",hex(result.output)},{"stderr_hex",hex(result.error)},
           {"exit_code",result.exit_code},{"timed_out",result.timed_out},{"cancelled",result.cancelled},{"truncated",result.truncated},
           {"output_eof",result.output_complete},
           {"complete",result.output_complete&&!result.timed_out&&!result.cancelled&&!result.truncated&&sha256_file(staged)==artifact&&sha256_file(options.stdin_file)==sha256_text(bytes)}};
+        data["argv"]=r.value("argv",J::array());data["files"]=files;
+        data["environment"]=r.value("environment",J(nullptr));
+        data["environment_policy"]=options.clear_environment?"explicit replacement":"inherited";
+        if(managed) {
+          data["managed_trace"]={{"status","unavailable"},{"scope","CoreCLR startup EventPipe; target must enable diagnostics; absence is not absence of managed execution"}};
+          if(fs::is_regular_file(trace_path)&&fs::file_size(trace_path)<=16777216&&fs::file_size(trace_path)>0) {
+            auto trace=store.import_target(project,trace_path);
+            store.record_derivation(trace,{{"kind","managed_runtime_trace"},{"session_id",id},{"source_artifact_sha256",artifact},{"execution_authority",false}});
+            StaticService analysis(store.root());
+            auto parsed=analysis.execute(analysis.prepare({{"project",project},{"target_id",trace.id},{"backend","ilspy"},{"operation","trace"},{"budget",{{"wall_ms",5000},{"output_bytes",65536},{"memory_bytes",268435456},{"max_items",128}}}}));
+            data["managed_trace"]={{"status",parsed.at("status")},{"trace_artifact_sha256",trace.sha256},{"analysis",parsed},{"original_artifact_sha256",artifact}};
+            db.observe(id,"managed_trace",data["managed_trace"],parsed.at("status").get<std::string>());
+          }
+        }
         try {(void)J(result.output).dump();data["output"]=result.output;}catch(const J::exception &){data["output_encoding"]="non-UTF8; use output_hex";}
         return data;
       };
@@ -1139,8 +1185,8 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
     if(rr) {
       if(!INDAGO_HAS_RR)throw std::runtime_error("rr requires a Linux build with the replay payload");
       const std::set<std::string> allowed=op=="record"?
-        std::set<std::string>{"schema","operation","project","backend","file","argv","cwd","timeout_ms","trace_bytes"}:
-        std::set<std::string>{"schema","operation","project","backend","session","timeout_ms","trace_bytes"};
+        std::set<std::string>{"schema","operation","project","backend","file","argv","cwd","timeout_ms","trace_bytes","input_hex","environment","files","experiment_key"}:
+        std::set<std::string>{"schema","operation","project","backend","session","timeout_ms","trace_bytes","experiment_key"};
       for(auto it=r.begin();it!=r.end();++it)if(!allowed.contains(it.key()))throw std::runtime_error("Unsupported rr request field: "+it.key());
       if(r.contains("backend")&&r.at("backend")!="rr")throw std::runtime_error("record/replay backend must be rr");
       r["backend"]="rr";
@@ -1203,6 +1249,8 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
         throw std::runtime_error("invalid argv");
     bounded(r, "lifetime_ms", 1800000, 86400000);
     auto id = make_id("run");
+    if(op!="attach"&&op!="replay"&&(r.contains("input_hex")||r.contains("files")||r.contains("environment")))
+      r=stage_runtime_inputs(fs::absolute(store.root()/"runtime-artifacts"/id/"inputs"),r);
     J s{{"schema", "indago.runtime-session.v1"},
         {"id", id},
         {"project", project},
@@ -1341,6 +1389,15 @@ J runtime_command(ProjectStore &store, const fs::path &executable, J r) {
              out.size() < rows.size() ? J(offset + out.size()) : J(nullptr)},
             {"coverage", "observed lifetimes, not guaranteed OS births/exits; "
                          "epochs are point reads"}};
+  }
+  if(op=="solve-input") {
+    auto records=db.observations(id,{{"id",r.at("observation")},{"limit",1}})["observations"];
+    if(records.empty()||records[0].at("kind")!="input_comparison")throw std::runtime_error("input comparison observation missing");
+    const auto &input=records[0].at("data").at("native").at("payload").at("input");
+    auto sources=db.observations(id,{{"kind","input_delivery"},{"limit",256}})["observations"];
+    J source;for(const auto &item:sources)if(item.at("data").at("native").at("payload").at("input_id")==input.at("input_id")){if(!source.is_null())throw std::runtime_error("ambiguous input delivery");source=item;}
+    if(source.is_null())throw std::runtime_error("native input delivery not retained");
+    auto data=runtime_solve_input(records[0],source,s);auto record=db.observe(id,"symbolic",data,"derived");record["status"]=data.at("status");return record;
   }
   if (op == "symbolic") {
     if (!r.contains("observation"))
@@ -1532,8 +1589,8 @@ int runtime_worker(ProjectStore &store, const std::string &id) {
       if (now() - started > static_cast<std::int64_t>(bounded(
                                 request, "lifetime_ms", 1800000, 86400000))) {
         pause();
-        backend->detach(false);
-        session["state"] = "detached";
+        backend->detach(request.value("terminate_on_expiry",false));
+        session["state"] = request.value("terminate_on_expiry",false)?"terminated":"detached";
         session["reason"] = "session lifetime expired";
         save();
         break;
@@ -1782,7 +1839,7 @@ int runtime_worker(ProjectStore &store, const std::string &id) {
     session["diagnostic"] = e.what();
     try {
       pause();
-      backend->detach(false);
+      backend->detach(session.at("request").value("terminate_on_expiry",false));
     } catch (const std::exception &cleanup) {
       session["cleanup_diagnostic"] = cleanup.what();
     }

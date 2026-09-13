@@ -1,5 +1,9 @@
 # Native investigation harness: external-owner stage
 
+Historical baseline: exclusions below describe the original static envelope.
+The [current contract](current-capabilities.md) includes explicitly granted
+helpers, experiments, reconstruction and guests; this page is not their allowlist.
+
 The harness is implemented in C++ and available through `indago harness`.
 This page describes the external-owner workflow, which never invokes another LLM.
 The [built-in provider loop](builtin-harness.md) now supports one pinned local or

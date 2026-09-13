@@ -1,0 +1,22 @@
+{
+  "pe_candidate": {
+    "status": "fixture_tested",
+    "evidence": "docs/static-stage.md and docs/input-solving-and-runtime-recovery.md: bounded x86/x64 PE fixtures; this is not challenge-specific coverage or proof that each filename is PE."
+  },
+  "elf_candidate": {
+    "status": "fixture_tested",
+    "evidence": "tests/research_workflow.cjs: source-built ELF original I/O and helper comparison; docs/static-stage.md covers existing ELF static tests. Member identities and algorithms still need assessment."
+  },
+  "capture": {
+    "status": "fixture_tested",
+    "evidence": "tests/wireshark_cli_checks.cjs and docs/pre-task8-and-protection.md: bounded generated offline packet fixture. Protocol semantics, encryption and local peers remain separate gaps."
+  },
+  "disk_image": {
+    "status": "fixture_tested",
+    "evidence": "tests/guest_lifecycle.cjs: 512-byte raw x86 boot fixture on explicit QEMU machine, reset and replay. Arbitrary filesystems, large images, other ISAs and guest OS agents are not covered."
+  },
+  "python": {
+    "status": "fixture_tested",
+    "evidence": "tests/research_live_ablation.cjs and tests/helper_tests.cpp: bounded isolated Python3 helpers. Arbitrary Python challenge dependencies and host APIs are not implicitly supported."
+  }
+}

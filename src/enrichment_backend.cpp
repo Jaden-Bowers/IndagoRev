@@ -3,6 +3,7 @@
 #include "indago/runtime.hpp"
 #include <algorithm>
 #include <fstream>
+#include "isolated_worker.hpp"
 
 namespace indago {
 namespace {
@@ -52,11 +53,14 @@ CommandResult query_enrichment(const TargetRecord& target,const J& request,const
     NativeProcessOptions options;options.cancel_file=cancel;
     options.wall_time_ms=std::min<std::uint64_t>(request.at("budget").at("wall_ms").get<std::uint64_t>(),60000);
     options.max_output_bytes=std::min<std::size_t>(request.at("budget").at("output_bytes").get<std::size_t>(),4*1024*1024);
-    const auto output=run_native_process(executable,argv,options);
+    const auto output=run_readonly_parser(executable,argv,{target.object_path},options,root,268435456,2147483648);
     J result{{"backend",backend},{"artifact_sha256",target.sha256},{"status","failed"},
         {"native_exit_code",output.exit_code},{"target_executed",false},{"scope",selected},
         {"provenance",{{"integration","bundled upstream standalone worker"},{"version",backend=="capa"?"9.4.0":"3.1.1"}}},
         {"worker",{{"wall_ms",options.wall_time_ms},{"output_bytes",options.max_output_bytes},{"cancelled",output.cancelled},{"timed_out",output.timed_out},{"output_truncated",output.truncated},{"security_sandbox",false},{"memory_limit_enforced",false}}}};
+#ifdef __linux__
+    result["worker"]["security_sandbox"]=true;result["worker"]["memory_limit_enforced"]=true;result["worker"]["profile"]="linux-parser-bwrap-cgroup-v1";result["worker"]["scratch_bytes"]=268435456;result["worker"]["aggregate_memory_bytes"]=2147483648;
+#endif
     if(output.cancelled||output.timed_out||output.truncated||output.exit_code!=0){
         result["status"]=output.cancelled?"cancelled":output.timed_out?"timeout":output.truncated?"partial":"failed";
         result["native_document_complete"]=false;

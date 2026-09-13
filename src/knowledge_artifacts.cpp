@@ -1,4 +1,5 @@
 #include "workbench_db.hpp"
+#include "indago/ilspy.hpp"
 #include <algorithm>
 
 namespace indago::wb {
@@ -115,7 +116,24 @@ J artifacts(const ProjectStore &store, const std::string &family,
     if (size > input.size() - offset)
       throw std::runtime_error("transform input range exceeds artifact");
     const auto spec = r.at("spec");
-    auto output = transform(input.substr(offset, size), spec);
+    std::string output;
+    if(spec.at("method")=="container_member") {
+      keys(spec,{"method","entry"});
+      auto entry=spec.at("entry").get<std::string>();
+      if(entry.empty()||entry.size()>1024||offset!=0||size!=input.size())throw std::runtime_error("Container extraction requires a whole bounded parent and literal member");
+      Db db(store.root()/"indago-native.sqlite3");Q q(db,"SELECT id FROM targets WHERE project=? AND sha=?");
+      if(!q.s(1,p).s(2,sha).row())throw std::runtime_error("Missing container parent");
+      auto parent=store.target(p,q.text(0));
+      auto temporary=store.root()/"staging"/make_id("member");fs::create_directories(temporary.parent_path());
+      try {
+        auto result=query_ilspy(parent,{{"operation","artifact"},{"arguments",{{"entry",entry}}},{"budget",{{"wall_ms",5000},{"output_bytes",65536},{"max_items",8}}}}, {},{},nullptr,temporary);
+        auto receipt=J::parse(result.json);
+        if(receipt.value("status",std::string{})!="completed"||!receipt.value("extracted",false))throw std::runtime_error("Container extraction failed: "+result.json);
+        output=read(temporary,1048576);
+        if(sha256_text(output)!=receipt.at("content_sha256").get<std::string>()||output.size()!=receipt.at("content_size").get<std::size_t>())throw std::runtime_error("Extracted member identity mismatch");
+        fs::remove(temporary);
+      }catch(...){fs::remove(temporary);throw;}
+    } else output = transform(input.substr(offset, size), spec);
     auto previous_selection = store.target(p, "", false).id;
     auto stage = store.root() / "staging" / make_id("derived");
     atomic_write(stage, output);
@@ -146,6 +164,10 @@ J artifacts(const ProjectStore &store, const std::string &family,
               {"assumptions", r.value("assumptions", J::array())},
               {"execution_claim", "bytes transformed only; no target execution "
                                   "or behavioral equivalence"}};
+    if(spec["method"]=="container_member") {
+      lineage["engine"]="bundled managed artifact parser";
+      lineage["mapping"]["mapping"]="literal container member to content hash; no bytewise or instruction identity implied";
+    }
     store.record_derivation(target, lineage);
     auto record = knowledge_put(
         store,
