@@ -19,6 +19,7 @@ work/
 # Local challenge corpus (independent upstream repository, not product source).
 /flare-on-chals/
 .env
+/agent/node_modules/
 .env.*
 !.env.example
 *.user

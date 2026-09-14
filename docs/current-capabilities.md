@@ -12,13 +12,16 @@ availability is not correctness, host compatibility or challenge qualification.
 Full profiles require prior staging. Configuration rejects missing engine
 directories/LIEF; build completion checks executable capabilities and writes
 `capabilities.full.json` with the executable hash and no local file paths.
-Staging checks and functional smoke tests remain necessary. Node is a build/check
-tool, not the application runtime. See [building](building.md).
+Staging checks and functional smoke tests remain necessary. The native CLI does
+not require Node at runtime. The optional [Pi frontend](../agent/README.md) uses
+Node and pinned Pi packages. See [building](building.md).
 
 ## Implemented scope
 
 - Static queries, separate Ghidra/XAIR views, indexed revisions and lineage.
 - Single-owner built-in/external harness, bounded actions and typed proof gates.
+- Pi coding frontend with direct native tools, host scripts and native knowledge
+  retrieval; matched plain/tools/knowledge benchmark preparation.
 - Explicit trusted-host debugger/instrumentation experiments and capture/reanalysis.
 - Linux contained generated helpers, finite algorithm reconstruction and revisions.
 - Managed/artifact parsing, CoreCLR observation, offline packets and service contracts.
@@ -27,7 +30,8 @@ tool, not the application runtime. See [building](building.md).
 
 See [autonomy status](autonomy-expansion-status.md) and
 [verification](autonomy-5-8-verification.md) for measured limits. Host execution is
-not sandboxed. Windows generated helpers fail closed. System manifests declare
+not sandboxed. Windows contained generated helpers fail closed; the Pi host
+frontend can run ordinary Windows scripts. System manifests declare
 dependencies and bind static scope; they are not a general execution provider.
 JSON is supported; protobuf is not implemented.
 

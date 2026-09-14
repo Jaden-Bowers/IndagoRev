@@ -10,6 +10,9 @@ recovered string is not automatically a verified solve.
 **Development software. Host target execution is not sandboxed.** Contained
 helpers and guests have separate, limited execution profiles.
 
+The [development benchmark](benchmarking/README.md) includes the four current
+challenge input sets, hash manifests, reproduction commands, and Qwen results.
+
 ## Clone and build
 
 Install Git, CMake 3.25+, Python 3 (Z3's **build-time** generator), and a C/C++
@@ -69,9 +72,15 @@ ILSpy, capa/FLOSS, LIEF, and TShark require the
 [documented engine staging steps](docs/building.md); they have not been removed.
 Inference is optional and requires your own configured provider.
 
+For a coding-agent workflow with ordinary files, PowerShell/WSL, scripts, native
+analysis tools and persistent program knowledge, use the optional
+[Pi frontend](agent/README.md). It uses Node and pinned Pi packages alongside the
+native executable.
+
 ## Documentation
 
 - [Current capability contract and build profiles](docs/current-capabilities.md)
+- [Pi coding-agent frontend and matched benchmark](agent/README.md)
 - [Diverse FLARE-On development subset](docs/development-subset-evaluation.md)
 
 - [Bounded analysis helpers](docs/analysis-helpers.md)

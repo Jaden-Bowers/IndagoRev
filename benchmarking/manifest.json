@@ -1,0 +1,110 @@
+{
+  "schema": "indago.portable-benchmark.v1",
+  "catalogue_sha256": "58e5f957f264e47052fdeb652a76fc9353d010655c51ea0b8da5471ec20bb3a1",
+  "pi_version": "0.85.1",
+  "sampling": {
+    "temperature": 0,
+    "context_tokens": 65536,
+    "max_output_tokens": 2048
+  },
+  "model": "huihui-qwen3.8-27b-abliterated",
+  "prompt": "Solve the FLARE-On challenge in the current directory and give the exact answer with the evidence supporting it. Work from the supplied files; do not look up solutions or read other challenge directories. You may write and run analysis scripts. Do not launch the supplied challenge programs.",
+  "maxGenerations": 16,
+  "timeout": 540000,
+  "challenges": [
+    {
+      "id": "flare-2014-01",
+      "target": "C1.exe",
+      "inputs": [
+        {
+          "member": "C1.exe",
+          "sha256": "f8aac4d0cccabd11d7b10d63dc2acc451ea832077650971d3c66834861162981",
+          "bytes": 285184
+        }
+      ]
+    },
+    {
+      "id": "flare-2014-02",
+      "target": "home.html",
+      "inputs": [
+        {
+          "member": "home.html",
+          "sha256": "d1b235e49336c2e510100bd3ffa3113d9c757ffb4829e9564597dbab8338b710",
+          "bytes": 8375
+        },
+        {
+          "member": "img/flare-on.png",
+          "sha256": "87528d13f40b51b6de90124fb92bcbc38a54e5241cd7ef969208c0707ed893dd",
+          "bytes": 9560
+        }
+      ]
+    },
+    {
+      "id": "flare-2018-01",
+      "target": "MinesweeperChampionshipRegistration.jar",
+      "inputs": [
+        {
+          "member": "MinesweeperChampionshipRegistration.jar",
+          "sha256": "9bcce226836b5226f9ecb17b13a2842dfc21931e15864cc4d85079f948f7a70e",
+          "bytes": 1111
+        }
+      ]
+    },
+    {
+      "id": "flare-2024-frog",
+      "target": "frog.py",
+      "inputs": [
+        {
+          "member": "README.txt",
+          "sha256": "340248996c1f95e0694fd0cb99baa85105610682317acb1c8d096e99b5dba9f8",
+          "bytes": 334
+        },
+        {
+          "member": "fonts/SIL Open Font License.txt",
+          "sha256": "d26b11696bfc75f256b53c3fc5b22bc18e808db83c13661d87fa28643c4ea8a1",
+          "bytes": 4367
+        },
+        {
+          "member": "fonts/VT323-Regular.ttf",
+          "sha256": "cf4de751ada78ceac033dbe16a687742939995b77bc2a052ae17a4957958594d",
+          "bytes": 153116
+        },
+        {
+          "member": "frog.py",
+          "sha256": "517b8b1ac93e0a32a012e6c17037b13f92173e092dc345092c0379e52d83ccc7",
+          "bytes": 7776
+        },
+        {
+          "member": "img/block.png",
+          "sha256": "6c4c181c6cbfc2851cecf9b41f97e0534b3d1d09a7cc67e53105d90b688a2b5a",
+          "bytes": 380
+        },
+        {
+          "member": "img/f11_statue.png",
+          "sha256": "d8da2204891a7f4007b0b7777a5a699ae8860aea4ccfb08f98d3837f8e5c625e",
+          "bytes": 61714
+        },
+        {
+          "member": "img/floor.png",
+          "sha256": "bf698737f54377cc6bd025da716bc1ee5032fe961bd6db8dbb4ea91f57a49cce",
+          "bytes": 266
+        },
+        {
+          "member": "img/frog.png",
+          "sha256": "aa04cc3a6b8a958b7411cfc869b039386b0c095437cfe2a0bdf0316d78f0919b",
+          "bytes": 3800
+        },
+        {
+          "member": "img/win.png",
+          "sha256": "fe9ace8a7287d4cdb6c474ec6bc71d228355535ef9a6c7477dec99ad7cbffe9f",
+          "bytes": 344691
+        },
+        {
+          "member": "frog.exe",
+          "sha256": "56540de243f437d9a5012b5ccdfcd5521755d60b68e9465d0d674461a6ff3561",
+          "bytes": 12966519
+        }
+      ]
+    }
+  ]
+}

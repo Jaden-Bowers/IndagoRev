@@ -1,0 +1,2 @@
+# Preserve exact benchmark bytes, including source/HTML and original notices.
+challenges/** -text -whitespace
