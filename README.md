@@ -13,6 +13,10 @@ helpers and guests have separate, limited execution profiles.
 The [development benchmark](benchmarking/README.md) includes the four current
 challenge input sets, hash manifests, reproduction commands, and Qwen results.
 
+The optional [pair-reversing GUI](gui/README.md) adds a native Windows workbench:
+decompiler, disassembler, source editor, quoted-selection agent chat, and Ghidra
+rename/retype actions. The existing CLI and autonomous harness remain available.
+
 ## Clone and build
 
 Install Git, CMake 3.25+, Python 3 (Z3's **build-time** generator), and a C/C++

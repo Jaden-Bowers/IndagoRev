@@ -18,6 +18,16 @@ Node and pinned Pi packages. See [building](building.md).
 
 ## Implemented scope
 
+- Windows C++/Dear ImGui pair-reversing GUI: Ghidra code views, UTF-8 source
+  editing, location-bound AI references, streamed Pi chat and provider/usage
+  settings; persisted function rename, signatures and variable retyping. Binary
+  analysis requires confirmation, then checkpoints decompilation of discovered
+  functions. Continuous assembly/pseudocode panes synchronize by native addresses;
+  cached listings reuse artifact/revision/engine identity. Provider context is
+  read-only. See [desktop scope](../gui/README.md). A Windows double-click folder
+  package is available; other desktop platforms and release qualification remain
+  open. Ghidra assembly queries also support the whole-program listing.
+
 - Static queries, separate Ghidra/XAIR views, indexed revisions and lineage.
 - Single-owner built-in/external harness, bounded actions and typed proof gates.
 - Pi coding frontend with direct native tools, host scripts and native knowledge

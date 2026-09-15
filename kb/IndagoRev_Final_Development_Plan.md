@@ -8,6 +8,15 @@
 supersede historical readiness snapshots below. The application core and controller
 are C/C++; controlled Python helpers do not make this a Python application.
 
+**Pair-reversing pivot, September 14, 2026:** The immediate product priority is
+human-directed investigation with explicit code-selection references, not improved
+unattended benchmark scores. The first Windows desktop uses C++20 / Dear ImGui
+with Ghidra code views, source editing, rename/retype transactions and a streamed
+Pi chat sidecar. This supersedes the Qt desktop choice below for the initial GUI.
+The native CLI, autonomous harness and knowledge implementation are retained;
+Pi/Node is a separate optional runtime, not a rewrite of the native core. See the
+[workbench implementation and limits](../gui/README.md).
+
 **Autonomy expansion, September 12–13, 2026:** Added native receipt-bound algorithm
 reconstruction/revision, service provenance and falsification contracts,
 failure/reproduction and matched-feature evaluation, reviewed recipe export, and

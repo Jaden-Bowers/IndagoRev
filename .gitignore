@@ -10,6 +10,9 @@ build/
 
 # Local IndagoRev state and generated analysis results.
 .indago/
+.indago-desktop/
+.indago-desktop-location.json
+IndagoRev-GhidraProjects/
 work/
 
 # Local-only checkouts. The three XAIR engines are tracked Git submodules.

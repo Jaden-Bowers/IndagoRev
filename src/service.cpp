@@ -60,7 +60,7 @@ Json StaticService::normalize(Json request) const {
     if(!operations.at(backend).contains(operation))throw std::runtime_error("unsupported backend operation");
     request["address"]=request.value("address",std::string{});request["view"]=request.value("view",std::string("compact"));
     const auto addr=request["address"].get<std::string>();
-    const bool needs_address=backend=="ghidra"&&std::set<std::string>{"decompile","tokens","assembly","xrefs","calls","variables","cfg","pcode","control_flow","annotate"}.contains(operation);
+    const bool needs_address=backend=="ghidra"&&std::set<std::string>{"decompile","tokens","xrefs","calls","variables","cfg","pcode","control_flow","annotate"}.contains(operation);
     if(needs_address&&addr.empty())throw std::runtime_error("operation requires a function address");
     if(!addr.empty()&&!(backend=="airece"&&operation=="evidence")){
         if(!addr.starts_with("0x")||addr.size()<3||addr.size()>18||addr.substr(2).find_first_not_of("0123456789abcdefABCDEF")!=std::string::npos)throw std::runtime_error("address requires a 64-bit hexadecimal value");

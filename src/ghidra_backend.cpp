@@ -205,18 +205,25 @@ CommandResult query_ghidra(const TargetRecord& target,const ProjectStore& store,
     // is still carried in each request and result.
     auto dir=fs::absolute(store.root()/"workers"/("gh-"+sha256_text(target.sha256+identity).substr(0,32)));fs::create_directories(dir/"project");
     auto project_dir=dir/"project";
-    // Ghidra disallows dot-prefixed components in its project path, including
-    // the CLI's default .indago and Linux .cache. Keep only disposable engine
-    // project state in a clean temporary path; evidence stays in the workspace.
-    for(const auto& part:project_dir)if(part.string().starts_with(".")){
-        project_dir=fs::temp_directory_path()/"indago-ghidra-projects"/sha256_text(dir.string());break;
+    // Ghidra rejects dot-prefixed path components. Its edited Program is durable
+    // user data, not a disposable cache: use the nearest clean ancestor instead
+    // of TEMP, and record the actual location beside the workspace mailbox.
+    fs::path clean;
+    bool relocated=false;
+    for(const auto& part:project_dir){
+        if(part.string().starts_with(".")){relocated=true;break;}
+        clean/=part;
     }
-    // TMPDIR itself may be under .cache. Do not repeat the invalid relocation.
-#ifndef _WIN32
-    for(const auto& part:project_dir)if(part.string().starts_with(".")){
-        project_dir=fs::path("/tmp")/"indago-ghidra-projects"/sha256_text(dir.string());break;
+    if(relocated){
+        project_dir=clean/"IndagoRev-GhidraProjects"/sha256_text(dir.string());
+        const auto legacy=fs::temp_directory_path()/"indago-ghidra-projects"/sha256_text(dir.string());
+        // Only copy a quiescent old database. Retain the original for recovery.
+        if(!session_alive(dir/"ready")&&!fs::exists(project_dir/"indago.gpr")&&fs::exists(legacy/"indago.gpr")){
+            fs::create_directories(project_dir);
+            fs::copy(legacy,project_dir,fs::copy_options::recursive|fs::copy_options::skip_existing);
+        }
     }
-#endif
+    atomic_write(dir/"program-location.json",json{{"path",project_dir.string()},{"durable",true}}.dump());
     fs::create_directories(project_dir);
     auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(options.timeout_ms);
     auto cancelled=[&]{return !options.cancel_file.empty()&&fs::exists(options.cancel_file);};

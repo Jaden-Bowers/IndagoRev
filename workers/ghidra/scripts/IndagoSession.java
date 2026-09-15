@@ -234,7 +234,7 @@ public class IndagoSession extends HeadlessScript {
         while(it.hasNext() && room(a)) a.add(identity(it.next())); return a;
     }
     private JsonArray assembly(Function f) {
-        JsonArray a=new JsonArray(); InstructionIterator it=currentProgram.getListing().getInstructions(f.getBody(),true);
+        JsonArray a=new JsonArray(); InstructionIterator it=f==null?currentProgram.getListing().getInstructions(true):currentProgram.getListing().getInstructions(f.getBody(),true);
         while(it.hasNext()&&room(a)){Instruction i=it.next();a.add(obj("address",hex(i.getAddress()),"location",location(i.getAddress()),"text",i.toString(),"mnemonic",i.getMnemonicString(),"length",i.getLength(),"bytes",bytes(i)));}return a;
     }
     private JsonArray xrefs(Function f) {
@@ -328,6 +328,7 @@ public class IndagoSession extends HeadlessScript {
             out.addProperty("analysis_scope","pending native analysis; explicit function entry seed when address supplied");out.add("functions",functions());
         }
         else if(op.equals("import")||op.equals("inspect")||op.equals("functions"))out.add("functions",functions());
+        else if(op.equals("assembly")&&request.get("address").getAsString().isEmpty())out.add("instructions",assembly(null));
         else if(op.equals("types"))out.add("types",types());
         else if(op.equals("strings"))out.add("strings",strings());
         else if(op.equals("imports")||op.equals("exports"))out.add(op,symbols(op.equals("imports")));

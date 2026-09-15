@@ -218,3 +218,7 @@ endif()
 
 install(TARGETS indago RUNTIME DESTINATION bin)
 install(DIRECTORY workers/ghidra/scripts DESTINATION workers/ghidra)
+option(INDAGO_BUILD_GUI "Build the Windows pair-reversing workbench" OFF)
+if(INDAGO_BUILD_GUI)
+    add_subdirectory(gui)
+endif()
