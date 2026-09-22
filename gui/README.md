@@ -4,6 +4,11 @@ A small C++20 / Dear ImGui desktop frontend. The first platform backend is
 Windows 10+ Win32/D3D11. Linux/macOS desktop backends are not implemented yet;
 the existing CLI and Pi harness remain independently usable.
 
+For the proposed next GUI iteration, see the [GUI design](../docs/gui-design.md)
+and [mock-first development plan](../docs/gui-development-plan.md). These describe
+a future ARM64 macOS mock build and shared Dear ImGui panels; the current build
+below remains Windows-only.
+
 ## Build and run
 
 For a double-click folder package, build the GUI/native CLI and run
