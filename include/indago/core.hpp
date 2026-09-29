@@ -42,6 +42,7 @@ public:
     const fs::path& root() const noexcept { return root_; }
     void initialize() const;
     CommandResult create_project(std::string_view name) const;
+    nlohmann::json list_projects() const;
     TargetRecord import_target(std::string_view project, const fs::path& source) const;
     TargetRecord latest_target(std::string_view project) const;
     void record_derivation(const TargetRecord& target, const nlohmann::json& lineage) const;

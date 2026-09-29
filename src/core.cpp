@@ -253,6 +253,13 @@ CommandResult ProjectStore::create_project(std::string_view name) const {
     fs::create_directories(root_/"projects"/std::string(name)/"analyses");
     return {0,"completed",record.dump()};
 }
+Json ProjectStore::list_projects() const {
+    Db db(root_/"indago-native.sqlite3");
+    Statement q(db,"SELECT p.name,p.id,p.created,count(DISTINCT t.id),count(DISTINCT f.id) FROM projects p LEFT JOIN targets t ON t.project=p.name LEFT JOIN functions f ON f.project=p.name GROUP BY p.id ORDER BY p.created DESC, p.name");
+    Json rows=Json::array();
+    while(q.row()) rows.push_back({{"name",q.text(0)},{"id",q.text(1)},{"created_at",q.text(2)},{"targets",sqlite3_column_int64(q.p,3)},{"functions",sqlite3_column_int64(q.p,4)}});
+    return {{"schema","indago.projects.v1"},{"projects",rows}};
+}
 TargetRecord ProjectStore::import_target(std::string_view project,const fs::path& source) const {
     Db db(root_/"indago-native.sqlite3"); require_project(db,project);
     if (!fs::is_regular_file(source)) throw std::runtime_error("target is not a regular file");
