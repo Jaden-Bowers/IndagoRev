@@ -1,0 +1,33 @@
+IndagoRev mock GUI on macOS
+==========================
+
+Double-click "Run Mock GUI.command" in this folder.
+It builds and opens the app. No x64 tools, Node, or AI provider are needed.
+Prerequisites: CMake and Apple's Command Line Tools (already present on this Mac).
+
+Once built, you can also open out/gui-macos/IndagoRev.app from the project folder.
+
+What works now:
+- The first design: project left, pseudocode ABOVE assembly, agent right.
+- Clicking a function updates the synthetic code and evidence text.
+- Evidence, Edits, and Activity tabs; resizing the window and column widths.
+- Closing the window or pressing Command-Q quits the application.
+
+The chat controls are placeholders and disabled. No binary is analyzed or run.
+
+Read the code in this order:
+1. workbench.cpp: mock text, panel functions, colors, and DrawWorkbench().
+2. workbench.hpp: the two function declarations used by the window code.
+3. main_macos.mm: Mac window creation and the frame loop that calls DrawWorkbench().
+   The .mm extension allows Apple's Objective-C APIs alongside C++.
+4. CMakeLists.txt: selects the sources and frameworks needed to build the app.
+
+vendor/imgui/backends contains unchanged official Dear ImGui platform code.
+You do not need to edit those files to change the GUI layout.
+
+Terminal alternative (run from the project root):
+  cmake -S gui -B out/gui-macos
+  cmake --build out/gui-macos --parallel 4
+  open out/gui-macos/IndagoRev.app
+
+The existing Windows GUI and analysis tools are separate from this Mac mock app.

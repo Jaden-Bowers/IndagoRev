@@ -1,8 +1,18 @@
 # Pair-reversing workbench
 
-A small C++20 / Dear ImGui desktop frontend. The first platform backend is
-Windows 10+ Win32/D3D11. Linux/macOS desktop backends are not implemented yet;
-the existing CLI and Pi harness remain independently usable.
+A C++20 / Dear ImGui desktop frontend. The macOS app is a runnable mock of the
+stacked workbench layout. The existing Windows Win32/D3D11 frontend connects to
+the analysis tools. The CLI and Pi harness remain independently usable.
+
+## Run the mock GUI on macOS
+
+Double-click **Run Mock GUI.command** in this folder to build and open the app.
+It needs CMake and Apple's Command Line Tools, but no analysis engines or provider.
+After building, you can also open `out/gui-macos/IndagoRev.app` from the project root.
+See [START_HERE.txt](START_HERE.txt) for the code reading order and terminal commands.
+
+Select a function to update the synthetic pseudocode, assembly and evidence.
+Chat and editing are placeholders. This app does not analyze or execute binaries.
 
 For the proposed next GUI iteration, see the [GUI design](../docs/gui-design.md)
 and [mock-first development plan](../docs/gui-development-plan.md). These describe
