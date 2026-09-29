@@ -356,7 +356,7 @@ std::optional<fs::path> find_native_worker() {
     if (!executable_error) roots.push_back(executable_path.parent_path());
 #endif
     for (auto root : roots) {
-        for (const auto& candidate : {root / name})
+        for (const auto& candidate : {root / name, root.parent_path() / name, root.parent_path().parent_path() / name})
             if (fs::is_regular_file(candidate)) return fs::absolute(candidate);
     }
     return std::nullopt;
