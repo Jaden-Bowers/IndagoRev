@@ -11,7 +11,7 @@ under the project store's workers directory. Subsequent native CLI processes
 reuse that Java process for five minutes after the most recent request.
 
 JSON operations: `import`, `inspect`, `functions`, `decompile`, `tokens`,
-`assembly`, `xrefs`, `calls`, `strings`, `imports`, `exports`, `types`, `variables`, and `cfg`. Function operations take
+`assembly`, `xrefs`, `calls`, `strings`, `string_sniper`, `imports`, `exports`, `types`, `variables`, and `cfg`. Function operations take
 an address. `max_items`, `max_output_bytes`, and `timeout_ms` bound requests.
 Native decompiler verdicts and diagnostics are retained. Tokens preserve
 native syntax class and address ranges; `rendered_offset`/`rendered_end` index

@@ -26,7 +26,7 @@ runtime-construction modules when present; see [packaging](knowledge-workbench.m
 ## Operations
 
 Existing: `import`, `inspect`, `functions`, `decompile`, `tokens`, `assembly`,
-`xrefs`, `calls`, `strings`, `imports`, `exports`, `types`, `variables`, `cfg`.
+`xrefs`, `calls`, `strings`, `string_sniper`, `imports`, `exports`, `types`, `variables`, `cfg`.
 Added: `pcode`, `control_flow`, `analyze`, `session`, `flush`, `close`,
 `annotate`, `annotations`. Function queries and annotations require `address`.
 
@@ -58,6 +58,19 @@ separate original `decompiled_c` string.
 calling convention and no-return metadata. Candidates are not exhaustive
 proof. Bounded native exception/TLS and indirect-pointer recovery is implemented;
 see [analysis depth](analysis-depth.md) for its exact coverage and remaining limits.
+
+`string_sniper` ranks Ghidra-defined strings using transparent indicators for
+URLs, IP addresses, paths, credential-related words, execution paths, mixed
+alphanumeric text, and native references. Findings include string locations,
+up to 32 incoming references, and containing function identities where Ghidra
+has them. Results are heuristic leads, not a maliciousness verdict. Use
+`minimum_score` (0–100) to suppress lower-ranked findings and `search` to narrow
+the text. Pagination, scan limits, cancellation, and output budgets apply as
+with other Ghidra queries.
+
+```powershell
+indago query --project demo --backend ghidra --operation string_sniper --minimum-score 4 --max-items 64
+```
 
 ## Analysis and persistence
 

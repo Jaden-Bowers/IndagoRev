@@ -30,7 +30,7 @@ Python application runtime.
 | airece | inspect, functions, function, calls, xrefs, slice, path, flow, taint, evidence |
 | xair | inventory, semantic, cfg |
 | sym | solve_branch, source_to_sink, symbolic_slice, taint, path_condition |
-| ghidra | import, inspect, functions, decompile, tokens, assembly, xrefs, calls, strings, imports, exports, types, variables, cfg, pcode, control_flow, analyze, session, flush, close, annotate, annotations |
+| ghidra | import, inspect, functions, decompile, tokens, assembly, xrefs, calls, strings, string_sniper, imports, exports, types, variables, cfg, pcode, control_flow, analyze, session, flush, close, annotate, annotations |
 
 AIRECE views: compact, agent, pseudocode, disassembly, json. XAIR semantic
 results include decoded instructions, operations, SSA definitions/uses, flags,
