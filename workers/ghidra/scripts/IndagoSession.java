@@ -246,6 +246,35 @@ public class IndagoSession extends HeadlessScript {
     private JsonObject reference(Reference r,String direction){return obj("from",hex(r.getFromAddress()),"to",hex(r.getToAddress()),"from_location",location(r.getFromAddress()),"to_location",location(r.getToAddress()),"kind",r.getReferenceType().toString(),"direction",direction,"operand",r.getOperandIndex(),"call",r.getReferenceType().isCall());}
     private JsonArray calls(Function f){JsonArray a=new JsonArray();InstructionIterator it=currentProgram.getListing().getInstructions(f.getBody(),true);while(it.hasNext()&&room(a))for(Reference r:it.next().getReferencesFrom())if(r.getReferenceType().isCall()){if(!room(a))return a;a.add(reference(r,"outgoing"));}return a;}
     private JsonArray strings(){JsonArray a=new JsonArray();DataIterator it=currentProgram.getListing().getDefinedData(true);while(it.hasNext()&&room(a)){Data d=it.next();if(d.hasStringValue()){String value=String.valueOf(d.getValue());boolean truncated=value.length()>textLimit;if(truncated){value=value.substring(0,textLimit);partial=true;}a.add(obj("location",location(d.getAddress()),"value",value,"length",d.getLength(),"type",d.getDataType().getPathName(),"text_truncated",truncated));}}return a;}
+    private JsonObject stringFinding(Data d) {
+        String value=String.valueOf(d.getValue()); String lower=value.toLowerCase(java.util.Locale.ROOT);
+        JsonArray tags=new JsonArray(); int score=0;
+        if(lower.matches(".*https?://[^\\s]+.*")){tags.add("url");score+=4;}
+        if(lower.matches(".*\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b.*")){tags.add("ip_address");score+=4;}
+        if(lower.matches(".*(?:[a-z]:\\\\|/etc/|/var/|/tmp/|\\\\\\\\[^\\\\]+\\\\[^\\\\]+).*")){tags.add("filesystem_path");score+=3;}
+        if(lower.matches(".*(?:password|passwd|token|secret|credential|api[_-]?key).*")){tags.add("credential_keyword");score+=5;}
+        if(lower.matches(".*(?:software\\\\|currentversion\\\\|\\.\\./|\\.\\.\\\\).*")){tags.add("configuration_path");score+=3;}
+        if(lower.matches(".*(?:\\bcmd\\.exe\\b|\\bpowershell\\b|/bin/(?:sh|bash)\\b|\\bsystem32\\b).*")){tags.add("execution_path");score+=4;}
+        ReferenceIterator refs=currentProgram.getReferenceManager().getReferencesTo(d.getAddress());JsonArray xrefs=new JsonArray();
+        while(refs.hasNext()&&xrefs.size()<32){Reference r=refs.next();Function f=currentProgram.getFunctionManager().getFunctionContaining(r.getFromAddress());JsonObject row=reference(r,"incoming");if(f!=null)row.add("function",identity(f));xrefs.add(row);}
+        if(xrefs.size()>0){tags.add("referenced");score+=Math.min(3,xrefs.size());}
+        if(value.length()>=8&&value.matches(".*[A-Za-z].*")&&value.matches(".*[0-9].*")){tags.add("mixed_alphanumeric");score++;}
+        boolean truncated=value.length()>textLimit;if(truncated){value=value.substring(0,textLimit);partial=true;}
+        return obj("location",location(d.getAddress()),"value",value,"length",d.getLength(),"type",d.getDataType().getPathName(),"text_truncated",truncated,"score",score,"tags",tags,"xrefs",xrefs,"xref_count",xrefs.size(),"triage","heuristic lead; validate in native code and data flow");
+    }
+    private JsonArray stringSniper() {
+        JsonArray findings=new JsonArray();java.util.List<JsonObject> ranked=new java.util.ArrayList<>();DataIterator it=currentProgram.getListing().getDefinedData(true);
+        int minimum=arguments.has("minimum_score")?arguments.get("minimum_score").getAsInt():1;
+        String search=arguments.has("search")?arguments.get("search").getAsString().toLowerCase(java.util.Locale.ROOT):"";
+        while(it.hasNext()&&findings.size()<limit&&!task.isCancelled()){
+            Data d=it.next();if(!d.hasStringValue())continue;String value=String.valueOf(d.getValue());
+            if(!search.isEmpty()&&!value.toLowerCase(java.util.Locale.ROOT).contains(search))continue;
+            JsonObject finding=stringFinding(d);if(finding.get("score").getAsInt()>=minimum)ranked.add(finding);
+        }
+        ranked.sort((a,b)->Integer.compare(b.get("score").getAsInt(),a.get("score").getAsInt()));
+        for(JsonObject finding:ranked)findings.add(finding);
+        return findings;
+    }
     private JsonArray symbols(boolean imports){JsonArray a=new JsonArray();SymbolIterator it=imports?currentProgram.getSymbolTable().getExternalSymbols():currentProgram.getSymbolTable().getSymbolIterator(true);while(it.hasNext()&&room(a)){Symbol s=it.next();if(imports||currentProgram.getSymbolTable().isExternalEntryPoint(s.getAddress()))a.add(obj("id",Long.toUnsignedString(s.getID()),"name",s.getName(),"namespace",s.getParentNamespace().getName(true),"location",location(s.getAddress()),"native_kind",s.getSymbolType().toString()));}return a;}
     private JsonArray variables(Function f) {
         JsonArray a=new JsonArray();for(Variable v:f.getAllVariables()){if(!room(a))break;a.add(obj("name",v.getName(),"type",v.getDataType().getPathName(),"storage",v.getVariableStorage().toString(),"first_use_offset",v.getFirstUseOffset(),"parameter",v instanceof Parameter,"source",v.getSource().toString()));}return a;
@@ -331,6 +360,7 @@ public class IndagoSession extends HeadlessScript {
         else if(op.equals("assembly")&&request.get("address").getAsString().isEmpty())out.add("instructions",assembly(null));
         else if(op.equals("types"))out.add("types",types());
         else if(op.equals("strings"))out.add("strings",strings());
+        else if(op.equals("string_sniper"))out.add("findings",stringSniper());
         else if(op.equals("imports")||op.equals("exports"))out.add(op,symbols(op.equals("imports")));
         else {Function f=function(request.get("address").getAsString());out.add("function",identity(f));switch(op){
             case "decompile":case "tokens":out.add("decompilation",decompile(f,Math.max(1,request.get("timeout_ms").getAsInt()/1000)));break;
