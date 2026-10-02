@@ -256,18 +256,18 @@ public class IndagoSession extends HeadlessScript {
         if(lower.matches(".*(?:password|passwd|token|secret|credential|api[_-]?key).*")){tags.add("credential_keyword");score+=5;}
         if(lower.matches(".*(?:software\\\\|currentversion\\\\|\\.\\./|\\.\\.\\\\).*")){tags.add("configuration_path");score+=3;}
         if(lower.matches(".*(?:\\bcmd\\.exe\\b|\\bpowershell\\b|/bin/(?:sh|bash)\\b|\\bsystem32\\b).*")){tags.add("execution_path");score+=4;}
-        ReferenceIterator refs=currentProgram.getReferenceManager().getReferencesTo(d.getAddress());JsonArray xrefs=new JsonArray();
-        while(refs.hasNext()&&xrefs.size()<32){Reference r=refs.next();Function f=currentProgram.getFunctionManager().getFunctionContaining(r.getFromAddress());JsonObject row=reference(r,"incoming");if(f!=null)row.add("function",identity(f));xrefs.add(row);}
-        if(xrefs.size()>0){tags.add("referenced");score+=Math.min(3,xrefs.size());}
+        ReferenceIterator refs=currentProgram.getReferenceManager().getReferencesTo(d.getAddress());JsonArray xrefs=new JsonArray();int xrefCount=0;
+        while(refs.hasNext()){Reference r=refs.next();xrefCount++;if(xrefs.size()<32){Function f=currentProgram.getFunctionManager().getFunctionContaining(r.getFromAddress());JsonObject row=reference(r,"incoming");if(f!=null)row.add("function",identity(f));xrefs.add(row);}}
+        if(xrefCount>0){tags.add("referenced");score+=Math.min(3,xrefCount);}
         if(value.length()>=8&&value.matches(".*[A-Za-z].*")&&value.matches(".*[0-9].*")){tags.add("mixed_alphanumeric");score++;}
         boolean truncated=value.length()>textLimit;if(truncated){value=value.substring(0,textLimit);partial=true;}
-        return obj("location",location(d.getAddress()),"value",value,"length",d.getLength(),"type",d.getDataType().getPathName(),"text_truncated",truncated,"score",score,"tags",tags,"xrefs",xrefs,"xref_count",xrefs.size(),"triage","heuristic lead; validate in native code and data flow");
+        return obj("location",location(d.getAddress()),"value",value,"length",d.getLength(),"type",d.getDataType().getPathName(),"text_truncated",truncated,"score",score,"tags",tags,"xrefs",xrefs,"xref_count",xrefCount,"xrefs_truncated",xrefCount>xrefs.size(),"triage","heuristic lead; validate in native code and data flow");
     }
     private JsonArray stringSniper() {
         JsonArray findings=new JsonArray();java.util.List<JsonObject> ranked=new java.util.ArrayList<>();DataIterator it=currentProgram.getListing().getDefinedData(true);
         int minimum=arguments.has("minimum_score")?arguments.get("minimum_score").getAsInt():1;
         String search=arguments.has("search")?arguments.get("search").getAsString().toLowerCase(java.util.Locale.ROOT):"";
-        while(it.hasNext()&&findings.size()<limit&&!task.isCancelled()){
+        while(it.hasNext()&&ranked.size()<limit&&!task.isCancelled()){
             Data d=it.next();if(!d.hasStringValue())continue;String value=String.valueOf(d.getValue());
             if(!search.isEmpty()&&!value.toLowerCase(java.util.Locale.ROOT).contains(search))continue;
             JsonObject finding=stringFinding(d);if(finding.get("score").getAsInt()>=minimum)ranked.add(finding);
