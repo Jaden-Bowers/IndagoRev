@@ -194,6 +194,18 @@ export default function (pi: any) {
     }),
     (p: any, s: any) => native.analyze(p, s),
   );
+  tool(
+    "string_sniper",
+    "Rank Ghidra-defined strings by triage heuristics and return their tags, native references, and containing functions. Scores are leads, not maliciousness verdicts.",
+    Type.Object({
+      search: Type.Optional(Type.String()),
+      minimum_score: Type.Optional(Type.Integer({ minimum: 0, maximum: 100 })),
+    }),
+    (p: any, s: any) => native.analyze({
+      backend: "ghidra", operation: "string_sniper",
+      arguments: { search: p.search, minimum_score: p.minimum_score ?? 1 },
+    }, s),
+  );
   for (const [name, operation, description] of [
     [
       "decompile",

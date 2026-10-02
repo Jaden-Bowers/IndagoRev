@@ -90,7 +90,7 @@ available through the CLI. Windows screenshots return an image only when
 The Qwen text profile does not establish vision support. Screenshot capture is
 Windows-only in this frontend.
 
-Direct tools: `program_open`, `analysis_tools`, `analyze`, `decompile`, `functions`,
+Direct tools: `program_open`, `analysis_tools`, `analyze`, `string_sniper`, `decompile`, `functions`,
 `xrefs`, `runtime`, `run_experiment`, `native_command`, `program_search`, `knowledge_search`,
 `remember`, and `wsl`. Addresses for decompile/xrefs are hexadecimal addresses
 returned by native analysis. Select another program with `program_open`.
