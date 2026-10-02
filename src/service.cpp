@@ -30,7 +30,7 @@ Json StaticService::capabilities() const {
     result["backends"].push_back({{"name","xair"},{"available",INDAGO_HAS_XAIR!=0},{"operations",{"inventory","semantic","cfg"}},{"integration","statically-linked"},{"cancellation",true}});
     result["backends"][0]["integration"]="statically-linked; same-executable worker";
     result["backends"].push_back({{"name","sym"},{"available",airece.has_value()},{"operations",{"solve_branch","source_to_sink","symbolic_slice","taint","path_condition"}},{"integration","statically-linked AIRECE/XAIR_SYM/Z3"},{"cancellation",true}});
-    result["backends"].push_back({{"name","ghidra"},{"available",ghidra.has_value()},{"executable",ghidra?Json(ghidra->string()):Json(nullptr)},{"operations",{"import","inspect","functions","decompile","tokens","assembly","xrefs","calls","strings","imports","exports","types","variables","cfg","pcode","control_flow","analyze","session","flush","close","annotate","annotations"}},{"integration","persistent DecompInterface worker"},{"bundled",INDAGO_HAS_GHIDRA!=0},{"profiles",{"standard","inventory"}},{"cancellation",true}});
+    result["backends"].push_back({{"name","ghidra"},{"available",ghidra.has_value()},{"executable",ghidra?Json(ghidra->string()):Json(nullptr)},{"operations",{"import","inspect","functions","decompile","tokens","assembly","xrefs","calls","strings","string_sniper","imports","exports","types","variables","cfg","pcode","control_flow","analyze","session","flush","close","annotate","annotations"}},{"integration","persistent DecompInterface worker"},{"bundled",INDAGO_HAS_GHIDRA!=0},{"profiles",{"standard","inventory"}},{"cancellation",true}});
     result["backends"].push_back({{"name","ilspy"},{"available",INDAGO_HAS_ILSPY!=0},{"operations",{"inventory","types","methods","decompile","assembly","references","member_refs","resources","trace","artifact"}},{"integration","bundled self-contained managed/artifact worker"},{"cancellation",true},{"input_limit_bytes",16777216},{"dependency_resolution","explicit imported target IDs; maximum eight"}});
     result["backends"].push_back({{"name","capa"},{"available",INDAGO_HAS_ENRICHMENT!=0},{"operations",{"capabilities"}},{"integration","bundled upstream standalone worker"},{"formats",{"pe","elf","dotnet"}},{"cancellation",true},{"findings_are_leads",true}});
     result["backends"].push_back({{"name","floss"},{"available",INDAGO_HAS_ENRICHMENT!=0},{"operations",{"strings"}},{"integration","bundled upstream standalone worker"},{"modes",{"static","stack","tight","decoded","all"}},{"cancellation",true},{"language_specialization","disabled"}});
@@ -56,7 +56,7 @@ Json StaticService::normalize(Json request) const {
         {"lief",{"inventory","sections","resources","notes","libraries"}},
         {"wireshark",{"packets"}},
         {"sym",{"solve_branch","source_to_sink","symbolic_slice","taint","path_condition"}},
-        {"ghidra",{"import","inspect","functions","decompile","tokens","assembly","xrefs","calls","strings","imports","exports","types","variables","cfg","pcode","control_flow","analyze","session","flush","close","annotate","annotations"}}};
+        {"ghidra",{"import","inspect","functions","decompile","tokens","assembly","xrefs","calls","strings","string_sniper","imports","exports","types","variables","cfg","pcode","control_flow","analyze","session","flush","close","annotate","annotations"}}};
     if(!operations.at(backend).contains(operation))throw std::runtime_error("unsupported backend operation");
     request["address"]=request.value("address",std::string{});request["view"]=request.value("view",std::string("compact"));
     const auto addr=request["address"].get<std::string>();
@@ -119,8 +119,9 @@ Json StaticService::normalize(Json request) const {
         if(!method_operation&&!addr.empty())throw std::runtime_error("ILSpy address only applies to a method operation");
     }
     if(backend=="ghidra") {
-        const std::set<std::string> allowed{"cursor","collection","search","profile","expected_revision","annotation","scan_limit"};
+        const std::set<std::string> allowed{"cursor","collection","search","profile","expected_revision","annotation","scan_limit","minimum_score"};
         for(auto it=request["arguments"].begin();it!=request["arguments"].end();++it)if(!allowed.contains(it.key()))throw std::runtime_error("unknown Ghidra argument: "+it.key());
+        if(request["arguments"].contains("minimum_score")&&(!request["arguments"]["minimum_score"].is_number_integer()||request["arguments"]["minimum_score"].get<int>()<0||request["arguments"]["minimum_score"].get<int>()>100))throw std::runtime_error("minimum_score must be 0..100");
         if(request["arguments"].dump().size()>32768)throw std::runtime_error("Ghidra arguments exceed 32KiB");
     }
     if(backend=="airece"&&operation=="flow") {

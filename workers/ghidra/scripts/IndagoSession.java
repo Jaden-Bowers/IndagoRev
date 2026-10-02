@@ -195,7 +195,8 @@ public class IndagoSession extends HeadlessScript {
         switch(op){case "inspect":case "import":case "functions":return "functions";
           case "decompile":case "tokens":return "decompilation/tokens";case "assembly":return "instructions";
           case "analyze":return "functions";case "variables":return "recovered/variables";case "cfg":return "cfg/blocks";
-          case "pcode":return "pcode/operations";case "control_flow":return "control_flow/indirect_flows";default:return op;}
+          case "pcode":return "pcode/operations";case "control_flow":return "control_flow/indirect_flows";
+          case "string_sniper":return "findings";default:return op;}
     }
     private void paginate(JsonObject result) {
         String path=collection(activeRequest.get("operation").getAsString());JsonElement value=result;
@@ -321,7 +322,7 @@ public class IndagoSession extends HeadlessScript {
     private JsonObject handle(JsonObject request) throws Exception {
         activeRequest=request;arguments=request.has("arguments")?request.getAsJsonObject("arguments"):new JsonObject();
         String op=request.get("operation").getAsString();pageSize=Math.max(1,Math.min(100000,request.get("max_items").getAsInt()));pageOffset=0;
-        cursorBinding=digest(request.get("session_key").getAsString()+currentProgram.getExecutableSHA256()+op+request.get("address").getAsString()+collection(op)+(arguments.has("search")?arguments.get("search").getAsString():""));
+        cursorBinding=digest(request.get("session_key").getAsString()+currentProgram.getExecutableSHA256()+op+request.get("address").getAsString()+collection(op)+(arguments.has("search")?arguments.get("search").getAsString():"")+(arguments.has("minimum_score")?arguments.get("minimum_score").getAsString():""));
         if(arguments.has("cursor")){
             String c=arguments.get("cursor").getAsString();if(c.length()>2048)throw new IllegalArgumentException("cursor too long");
             JsonObject cursor=JsonParser.parseString(new String(Base64.getUrlDecoder().decode(c),StandardCharsets.UTF_8)).getAsJsonObject();
