@@ -331,7 +331,7 @@ public class IndagoSession extends HeadlessScript {
         if(pageOffset<0||pageOffset>=100000)throw new IllegalArgumentException("cursor scan budget exceeded");
         int scan=arguments.has("scan_limit")?arguments.get("scan_limit").getAsInt():100000;
         if(scan<1||scan>100000)throw new IllegalArgumentException("scan_limit must be 1..100000");
-        limit=arguments.has("search")?scan:Math.min(scan,pageOffset+pageSize+1);
+        limit=(arguments.has("search")||op.equals("string_sniper"))?scan:Math.min(scan,pageOffset+pageSize+1);
         textLimit=Math.max(128,request.get("max_output_bytes").getAsInt()/4);partial=analysisTimedOut;
         JsonObject out=obj("schema","indago.ghidra-result.v2","backend","ghidra","operation",op,"program",obj("format",currentProgram.getExecutableFormat(),"image_base",hex(currentProgram.getImageBase()),"language",currentProgram.getLanguageID().toString(),"executable_sha256",currentProgram.getExecutableSHA256()));
         out.addProperty("analysis_timed_out",analysisTimedOut);

@@ -37,7 +37,7 @@ struct Args {
                 if(arg=="--help"){positional={"help"};continue;}
                 static const std::set<std::string> known{"workspace","project","name","file","id","artifact","offset","limit","backend","operation","address","view","timeout-ms","max-output-bytes","max-memory-bytes","max-items","target-id","request","profile","from","to","source","sink","target","function","mode","max-states","max-queries","max-paths","function-depth","symbolic-timeout-ms","max-taint-bytes","max-symbolic-bytes","kind","anchor","revision","search","subject","predicate","history","idempotency-key"};
                 static const std::set<std::string> runtime_options{"session","pid","thread","size","static-address","rva","module","max-steps","max-events","lifetime-ms","observation","wait","signal","cwd","recipe","trace-bytes"};
-                static const std::set<std::string> backend_options{"cursor","collection","expected-revision","scan-limit","format"};
+                static const std::set<std::string> backend_options{"cursor","collection","expected-revision","scan-limit","minimum-score","format"};
                 const bool worker_option = !positional.empty() && positional[0]=="__workbench" && (arg=="--action" || arg=="--runner");
                 if(!known.contains(arg.substr(2))&&!runtime_options.contains(arg.substr(2))&&!backend_options.contains(arg.substr(2))&&!worker_option)throw std::runtime_error("unknown option: "+arg);
                 if(i+1>=argc || std::string_view(argv[i+1]).starts_with("--")) throw std::runtime_error("missing value for "+arg);
@@ -72,6 +72,7 @@ Json make_request(const Args& args) {
     for(const auto& [key,value]:args.options) if(forwarded.contains(key))request["arguments"][key]=value;
     if(args.get("backend")=="ghidra") {
         for(const auto* key:{"cursor","collection","search"})if(args.options.contains(key))request["arguments"][key]=args.get(key);
+        if(args.options.contains("minimum-score"))request["arguments"]["minimum_score"]=args.number("minimum-score",1);
         if(args.options.contains("expected-revision"))request["arguments"]["expected_revision"]=args.number("expected-revision",0);
         if(args.options.contains("scan-limit"))request["arguments"]["scan_limit"]=args.number("scan-limit",100000);
     }
