@@ -11,8 +11,12 @@ It needs CMake and Apple's Command Line Tools, but no analysis engines or provid
 After building, you can also open `out/gui-macos/IndagoRev.app` from the project root.
 See [START_HERE.txt](START_HERE.txt) for the code reading order and terminal commands.
 
-Select a function to update the synthetic pseudocode, assembly and evidence.
-Chat and editing are placeholders. This app does not analyze or execute binaries.
+The mock supports function/address navigation, linked code selection, references,
+scripted chat, notes, annotation previews, analysis scenarios and an in-app command
+console. Type `help` in Console; use Up/Down for history and Tab for completion.
+Everything is session-only, and no binary is analyzed or executed. Windows can
+run the same shared mock UI with `indago-gui.exe --mock`; see START_HERE.txt for
+build commands, a walkthrough, code reading order and the Windows validation limit.
 
 For the proposed next GUI iteration, see the [GUI design](../docs/gui-design.md)
 and [mock-first development plan](../docs/gui-development-plan.md). These describe

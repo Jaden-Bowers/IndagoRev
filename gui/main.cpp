@@ -4,6 +4,7 @@
 #include "imgui_internal.h"
 #include "imgui_stdlib.h"
 #include "json.hpp"
+#include "workbench.hpp"
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -220,6 +221,9 @@ static int selectText(ImGuiInputTextCallbackData *d) {
   return 0;
 }
 static bool unsaved = false;
+// The portable mock UI shares this window and renderer, but never calls App's
+// live render path. Keep the flag visible to the native close/resize handler.
+static bool mockMode = false;
 struct App {
   Bridge bridge;
   bool connected = false, ready = false, busy = false, binary = false,
@@ -995,6 +999,15 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 static LRESULT WINAPI wndProc(HWND w, UINT m, WPARAM a, LPARAM b) {
   if (ImGui_ImplWin32_WndProcHandler(w, m, a, b))
     return true;
+  if (m == WM_GETMINMAXINFO && mockMode) {
+    // Match the Mac minimum content size, adjusted for Windows window borders.
+    RECT bounds{0, 0, 1000, 680};
+    AdjustWindowRect(&bounds, WS_OVERLAPPEDWINDOW, FALSE);
+    auto* limits = reinterpret_cast<MINMAXINFO*>(b);
+    limits->ptMinTrackSize.x = bounds.right - bounds.left;
+    limits->ptMinTrackSize.y = bounds.bottom - bounds.top;
+    return 0;
+  }
   if (m == WM_SIZE && device && a != SIZE_MINIMIZED) {
     if (target) {
       target->Release();
@@ -1005,8 +1018,11 @@ static LRESULT WINAPI wndProc(HWND w, UINT m, WPARAM a, LPARAM b) {
     return 0;
   }
   if (m == WM_CLOSE) {
-    if (unsaved &&
-        MessageBoxW(w, L"Discard unsaved source edits and exit?",
+    const bool hasEdits = mockMode ? WorkbenchHasUnsavedNotes() : unsaved;
+    const wchar_t* question = mockMode ? L"Discard unsaved mock notes and exit?" :
+                                        L"Discard unsaved source edits and exit?";
+    if (hasEdits &&
+        MessageBoxW(w, question,
                     L"Unsaved edits", MB_YESNO | MB_ICONWARNING) != IDYES)
       return 0;
     PostQuitMessage(0);
@@ -1027,8 +1043,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
       app.node = utf8((base / L"runtime" / L"node.exe").wstring());
     int argc = 0;
     auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    for (int i = 1; i + 1 < argc; i += 2) {
-      auto k = utf8(argv[i]), v = utf8(argv[i + 1]);
+    // --mock takes no value; the existing tool/path options take one argument.
+    // Parse the flag separately so it cannot consume the next option by mistake.
+    for (int i = 1; i < argc; ++i) {
+      auto k = utf8(argv[i]);
+      if (k == "--mock") {
+        mockMode = true;
+        continue;
+      }
+      if (i + 1 >= argc)
+        break;
+      auto v = utf8(argv[++i]);
       if (k == "--project")
         app.root = v;
       else if (k == "--exe")
@@ -1047,6 +1072,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     HWND window = CreateWindowW(wc.lpszClassName, L"IndagoRev - Pair Reversing",
                                 WS_OVERLAPPEDWINDOW, 100, 100, 1500, 950,
                                 nullptr, nullptr, instance, nullptr);
+    if (mockMode)
+      SetWindowTextW(window, L"IndagoRev - Mock Workbench");
     DXGI_SWAP_CHAIN_DESC sd{};
     sd.BufferCount = 2;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1074,6 +1101,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ImGui::StyleColorsDark();
     ImGui::GetStyle().FontSizeBase = 16.f;
     ImGui::GetStyle().Colors[ImGuiCol_FrameBg] = ImVec4(.08f, .09f, .11f, 1);
+    if (mockMode)
+      SetWorkbenchStyle();
     ImGui_ImplWin32_Init(window);
     ImGui_ImplDX11_Init(device, context);
     ShowWindow(window, SW_SHOWDEFAULT);
@@ -1095,7 +1124,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
       ImGui_ImplDX11_NewFrame();
       ImGui_ImplWin32_NewFrame();
       ImGui::NewFrame();
-      app.render();
+      // The model and panels are identical on Mac and Windows. Only native
+      // input, window lifetime, and graphics submission differ between hosts.
+      if (mockMode)
+        DrawWorkbench();
+      else
+        app.render();
       ImGui::Render();
       float clear[]{.07f, .08f, .1f, 1};
       context->OMSetRenderTargets(1, &target, nullptr);

@@ -7,3 +7,8 @@
 // Set the colors once when the app starts, then draw the layout each frame.
 void SetWorkbenchStyle();
 void DrawWorkbench();
+
+// Native window adapters can warn before quitting with an unfinished edit.
+// These functions do not depend on Cocoa, Win32, or a graphics API.
+bool WorkbenchHasUnsavedNotes();
+void DiscardWorkbenchNotes();

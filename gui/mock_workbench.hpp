@@ -31,6 +31,8 @@ class Workbench {
 public:
   Workbench();
   std::vector<Function> functions;
+  // selected identifies a function; line and anchor describe the inclusive code
+  // selection. All three are zero-based indexes. instruction is -1 if unmapped.
   int selected = 0, line = 0, anchor = 0, instruction = -1, revision = 7;
   bool showNotes = false, partial = false;
   std::string notes, savedNotes, status;
@@ -43,6 +45,7 @@ public:
   std::string streaming;
 
   bool Busy() const { return operation != Operation::Idle; }
+  // Saving notes means updating an in-memory checkpoint, never writing a file.
   bool Dirty() const { return notes != savedNotes; }
   bool SelectFunction(int index);
   bool SelectLine(int index, bool extend = false);

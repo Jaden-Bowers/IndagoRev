@@ -7,13 +7,15 @@ set(IMGUI ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/imgui)
 # Compile the checked-in ImGui sources; building requires no dependency download.
 set(IMGUI_CORE ${IMGUI}/imgui.cpp ${IMGUI}/imgui_draw.cpp
   ${IMGUI}/imgui_tables.cpp ${IMGUI}/imgui_widgets.cpp)
+# The same C++ model and drawing code compile with either native window adapter.
+set(WORKBENCH workbench.cpp mock_workbench.cpp ${IMGUI}/misc/cpp/imgui_stdlib.cpp)
 
 if(APPLE)
   # OBJCXX enables .mm files. MACOSX_BUNDLE packages the executable as a clickable
   # .app; workbench.cpp remains ordinary C++ and contains the actual UI layout.
   enable_language(OBJCXX)
   set(CMAKE_OBJCXX_STANDARD 20)
-  add_executable(indago-gui MACOSX_BUNDLE main_macos.mm workbench.cpp
+  add_executable(indago-gui MACOSX_BUNDLE main_macos.mm ${WORKBENCH}
     ${IMGUI_CORE}
     ${IMGUI}/backends/imgui_impl_osx.mm
     ${IMGUI}/backends/imgui_impl_metal.mm)
@@ -30,11 +32,10 @@ if(APPLE)
     MACOSX_BUNDLE_BUNDLE_NAME IndagoRev)
   install(TARGETS indago-gui BUNDLE DESTINATION .)
 elseif(WIN32)
-  # Keep the existing Windows application and its tool integration unchanged.
-  add_executable(indago-gui WIN32 main.cpp ${IMGUI_CORE}
+  # The --mock option uses the shared workbench; the default keeps live tools.
+  add_executable(indago-gui WIN32 main.cpp ${WORKBENCH} ${IMGUI_CORE}
     ${IMGUI}/backends/imgui_impl_win32.cpp
-    ${IMGUI}/backends/imgui_impl_dx11.cpp
-    ${IMGUI}/misc/cpp/imgui_stdlib.cpp)
+    ${IMGUI}/backends/imgui_impl_dx11.cpp)
   target_include_directories(indago-gui PRIVATE ${IMGUI}/misc/cpp ../vendor/nlohmann)
   target_compile_definitions(indago-gui PRIVATE UNICODE _UNICODE NOMINMAX)
   target_link_libraries(indago-gui PRIVATE d3d11 dxgi dwmapi shell32 ole32 uuid)
@@ -43,4 +44,12 @@ else()
   message(FATAL_ERROR "The desktop GUI currently supports macOS and Windows.")
 endif()
 # Tell the compiler where to find headers such as imgui.h and imgui_impl_metal.h.
-target_include_directories(indago-gui PRIVATE ${IMGUI} ${IMGUI}/backends)
+target_include_directories(indago-gui PRIVATE ${IMGUI} ${IMGUI}/backends ${IMGUI}/misc/cpp)
+
+# Model tests need no window, GPU, or external tools. CTest runs this executable.
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(mock-workbench-tests tests/mock_workbench_tests.cpp mock_workbench.cpp)
+  target_include_directories(mock-workbench-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME mock-workbench COMMAND mock-workbench-tests)
+endif()

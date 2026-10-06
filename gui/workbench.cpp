@@ -1,167 +1,392 @@
 #include "workbench.hpp"
+#include "mock_workbench.hpp"
 #include "imgui.h"
+#include "imgui_stdlib.h"
+#include <algorithm>
+#include <string>
 
-// Dear ImGui uses "immediate mode": we describe the visible controls again on
-// every frame. Values that must survive between frames are stored separately.
-// Read DrawWorkbench() at the bottom first to see how the panels fit together.
-
-// An unnamed namespace keeps these helper functions and variables private to
-// this source file. Only the functions declared in workbench.hpp are shared.
+// Dear ImGui redraws controls every frame. The model owns project data and
+// actions; this file owns presentation details such as text fields and tabs.
+// Start reading at DrawWorkbench() to see how the panels fit together.
 namespace {
-// All content is invented sample text. Selecting a row never runs a tool.
-// A struct groups the four pieces of text that describe one sample function.
-// Each const char* points to a string literal whose characters cannot be edited.
-struct MockFunction {
-  const char* name;
-  const char* address;
-  const char* pseudocode;
-  const char* assembly;
-};
+mock::Workbench model;
+ImGuiTextFilter functionFilter, consoleFilter;
+std::string address, prompt, command;
+bool selectConsole = false, focusConsole = false;
+bool scrollChat = true, scrollConsole = true;
+int editKind = 0, editFunction = -1, editRevision = 0;
+std::string editValue, editBefore;
+const char* editKinds[] = {"rename", "signature", "type"};
 
-// Each {...} is one function. Adjacent quoted strings are joined by C++, and
-// \n inside a string starts a new line when ImGui displays it.
-const MockFunction functions[] = {
-    {"entry", "0x140001000",
-     "int entry(void) {\n    initialize_runtime();\n    return main();\n}",
-     "0x140001000   sub rsp, 28h\n0x140001004   call initialize_runtime\n"
-     "0x140001009   call main\n0x14000100e   ret"},
-    {"main", "0x140001060",
-     "int main(void) {\n    decode_buffer(buf, size);\n    return check_result(buf);\n}",
-     "0x140001060   sub rsp, 28h\n0x140001064   call decode_buffer\n"
-     "0x140001069   call check_result\n0x14000106e   ret"},
-    {"decode_buffer", "0x140001120",
-     "void decode_buffer(byte *buf, size_t n) {\n    for (size_t i = 0; i < n; ++i) {\n"
-     "        buf[i] ^= 0x5A;\n    }\n}",
-     "0x140001120   xor eax, eax\n0x140001128   xor byte ptr [rcx+rax], 5Ah\n"
-     "0x14000112c   inc rax\n0x14000112f   cmp rax, rdx\n0x140001132   jb 0x140001128"},
-    {"check_result", "0x140001180",
-     "bool check_result(const byte *buf) {\n    return buf[0] == 0x48;\n}",
-     "0x140001180   cmp byte ptr [rcx], 48h\n0x140001183   sete al\n0x140001186   ret"},
-};
-// This is an array index: 0 selects entry. Keeping it outside the drawing
-// functions preserves the selection instead of resetting it every frame.
-int selectedFunction = 0;
+// Display external strings literally. Passing them as printf format strings
+// would interpret any percent signs in notes, commands, or future tool output.
+void Wrapped(const std::string& text) {
+  ImGui::PushTextWrapPos(0);
+  ImGui::TextUnformatted(text.c_str());
+  ImGui::PopTextWrapPos();
+}
+void Heading(const char* text) { ImGui::SeparatorText(text); }
+
+void DrawSettings() {
+  if (!ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+  static bool light = false;
+  if (ImGui::Checkbox("Light theme", &light)) {
+    if (light) ImGui::StyleColorsLight();
+    else SetWorkbenchStyle();
+  }
+  ImGui::SliderFloat("Text size", &ImGui::GetStyle().FontSizeBase, 13, 20, "%.0f");
+  int scenario = static_cast<int>(model.scenario);
+  ImGui::BeginDisabled(model.Busy());
+  if (ImGui::Combo("Next operation", &scenario,
+                   "Normal demo\0Partial analysis\0Chat provider failure\0"))
+    model.scenario = static_cast<mock::Scenario>(scenario);
+  ImGui::EndDisabled();
+  ImGui::TextUnformatted("Provider: offline scripted replies\nContext budget: unknown\nSettings and edits last for this session only.");
+  if (ImGui::Button("Close settings")) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
 
 void DrawHeader() {
-  // TextUnformatted displays text literally. SameLine keeps the next item on
-  // this row; otherwise ImGui normally moves down to the next row.
   ImGui::TextUnformatted("[i]  IndagoRev / Decoder study");
   ImGui::SameLine();
-  ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.46f, 1), "MOCK DATA");
-  ImGui::Separator();
-  ImGui::TextUnformatted("sample-decoder.exe");
+  ImGui::TextColored(ImVec4(0.85f, 0.60f, 0.20f, 1), "MOCK DATA");
   ImGui::SameLine();
-  ImGui::TextDisabled("PE / x64   |   Synthetic sample");
+  if (ImGui::Button("Console")) selectConsole = focusConsole = true;
+  ImGui::SameLine();
+  if (ImGui::Button("Settings")) ImGui::OpenPopup("Settings");
+  DrawSettings();
+  ImGui::Separator();
+  ImGui::Text("sample-decoder.exe   |   PE / x64   |   Synthetic fixture   |   rev %d", model.revision);
+  ImGui::SameLine();
+  if (model.Busy()) {
+    if (ImGui::Button("Cancel operation")) model.Cancel();
+    ImGui::SameLine();
+    ImGui::ProgressBar(model.progress, ImVec2(120, 0),
+        model.operation == mock::Operation::Analysis ? "Analysis" : "Reply");
+  } else {
+    ImGui::BeginDisabled(model.Dirty());
+    if (ImGui::Button("Replay analysis")) model.StartAnalysis();
+    ImGui::EndDisabled();
+  }
   ImGui::Separator();
 }
 
 void DrawProject() {
-  ImGui::SeparatorText("Project");
-  ImGui::TextUnformatted("decoder-study");
-  // Indent/Unindent visually nest the sample files under their project.
-  ImGui::Indent();
-  ImGui::TextUnformatted("sample-decoder.exe");
-  ImGui::TextDisabled("notes.md");
-  ImGui::Unindent();
-  ImGui::Spacing();
-  ImGui::SeparatorText("Functions");
-  // IM_ARRAYSIZE gives the number of entries in this fixed-size C++ array.
-  // The second Selectable argument decides which row gets the highlight.
-  for (int i = 0; i < IM_ARRAYSIZE(functions); ++i) {
-    // A selectable returns true only on the frame when it is clicked.
-    if (ImGui::Selectable(functions[i].name, selectedFunction == i))
-      selectedFunction = i;
-    ImGui::TextDisabled("%s", functions[i].address);
-    ImGui::Spacing();
+  Heading("Project");
+  if (ImGui::TreeNodeEx("decoder-study", ImGuiTreeNodeFlags_DefaultOpen)) {
+    Wrapped("sample-decoder.exe");
+    if (ImGui::Selectable(model.Dirty() ? "notes.md *" : "notes.md", model.showNotes))
+      model.OpenNotes();
+    ImGui::TreePop();
   }
+  Heading("Functions");
+  ImGui::TextDisabled("Filter name or address");
+  functionFilter.Draw("##Function filter", -1);
+  ImGui::SetNextItemWidth(-1);
+  const bool go = ImGui::InputTextWithHint("##Address", "Go to address or name", &address,
+                                          ImGuiInputTextFlags_EnterReturnsTrue);
+  if (ImGui::Button("Go") || go) model.Navigate(address);
+  ImGui::Separator();
+  int visible = 0;
+  for (int i = 0; i < static_cast<int>(model.functions.size()); ++i) {
+    const auto& f = model.functions[i];
+    const auto searchable = f.name + " " + f.address;
+    if (!functionFilter.PassFilter(searchable.c_str())) continue;
+    ++visible;
+    // Stable IDs avoid collisions if two visible labels happen to match.
+    ImGui::PushID(i);
+    if (ImGui::Selectable(f.name.c_str(), !model.showNotes && model.selected == i))
+      model.SelectFunction(i);
+    ImGui::TextDisabled("%s", f.address.c_str());
+    ImGui::Spacing();
+    ImGui::PopID();
+  }
+  if (!visible) Wrapped("No matching functions. Clear the filter to show all four.");
+  if (model.Dirty()) Wrapped("Save or discard notes before navigating.");
 }
 
-void DrawCode() {
-  // & makes this a reference to the selected record, rather than a copy.
-  // const prevents this function from changing the mock record through it.
-  const MockFunction& function = functions[selectedFunction];
-  const float height = ImGui::GetContentRegionAvail().y;
-  // ImVec2 holds a width and height. The first two child panels receive 52%
-  // and 25% of the available height; the inspector uses the rest after spacing.
-  // Positive heights reserve space. Zero lets the last panel fill the rest.
-  if (ImGui::BeginChild("Pseudocode", ImVec2(0, height * 0.52f),
-                        ImGuiChildFlags_Borders)) {
-    ImGui::SeparatorText("Pseudocode");
-    ImGui::TextDisabled("%s / %s", function.name, function.address);
-    ImGui::Separator();
-    ImGui::TextUnformatted(function.pseudocode);
-  }
-  // Every BeginChild needs EndChild, including when its contents are clipped.
-  ImGui::EndChild();
-  if (ImGui::BeginChild("Assembly", ImVec2(0, height * 0.25f),
-                        ImGuiChildFlags_Borders)) {
-    ImGui::SeparatorText("Assembly");
-    ImGui::TextUnformatted(function.assembly);
-  }
-  ImGui::EndChild();
-  if (ImGui::BeginChild("Inspector", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
-    // BeginTabItem is true for the visible tab. EndTabItem and EndTabBar are
-    // called only when their matching Begin call returns true.
-    if (ImGui::BeginTabBar("Inspector tabs")) {
-      if (ImGui::BeginTabItem("Evidence")) {
-        ImGui::TextUnformatted("Synthetic example / no analysis performed");
-        ImGui::Text("Function: %s", function.name);
-        ImGui::Text("Address:  %s", function.address);
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem("Edits")) {
-        ImGui::TextWrapped("Editing will be added in a later step.");
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem("Activity")) {
-        ImGui::TextWrapped("Mock project opened. No tools are running.");
-        ImGui::EndTabItem();
-      }
-      ImGui::EndTabBar();
+void DrawNotes() {
+  Heading("notes.md");
+  Wrapped("Session-only notes. Copy the text to keep it after closing the app.");
+  if (ImGui::Button("Save notes")) model.SaveNotes();
+  ImGui::SameLine();
+  if (ImGui::Button("Discard changes")) model.DiscardNotes();
+  ImGui::SameLine();
+  if (ImGui::Button("Copy notes")) ImGui::SetClipboardText(model.notes.c_str());
+  ImGui::TextDisabled("%s", model.Dirty() ? "Unsaved changes" : "Saved in this session");
+  ImGui::InputTextMultiline("##Notes", &model.notes, ImVec2(-1, -1));
+}
+
+void DrawPseudocode() {
+  const auto& f = model.functions[model.selected];
+  Heading("Pseudocode");
+  ImGui::TextDisabled("%s / %s", f.name.c_str(), f.address.c_str());
+  ImGui::BeginDisabled(model.Busy() || model.Dirty());
+  if (ImGui::Button("Add reference")) model.AddReference();
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::TextDisabled("Click a line; Shift-click for a range");
+  ImGui::Separator();
+  // The inner child permits horizontal scrolling for long declarations.
+  if (ImGui::BeginChild("Code rows", ImVec2(0, 0), 0, ImGuiWindowFlags_HorizontalScrollbar)) {
+    for (int i = 0; i < static_cast<int>(f.code.size()); ++i) {
+      ImGui::PushID(i);
+      const auto label = std::to_string(i + 1) + "  " + f.code[i];
+      const bool selected = i >= std::min(model.line, model.anchor) &&
+                            i <= std::max(model.line, model.anchor);
+      if (ImGui::Selectable(label.c_str(), selected, 0,
+                            ImVec2(std::max(ImGui::GetContentRegionAvail().x,
+                                           ImGui::CalcTextSize(label.c_str()).x), 0)))
+        model.SelectLine(i, ImGui::GetIO().KeyShift);
+      ImGui::PopID();
     }
   }
   ImGui::EndChild();
 }
 
-void DrawAgent() {
-  ImGui::SeparatorText("Agent");
-  // Reserve room for the 100-pixel text box and the surrounding control rows.
-  // A negative child height means "fill the space, leaving this much below".
-  const float composerHeight = 100 + ImGui::GetFrameHeightWithSpacing() * 3;
-  if (ImGui::BeginChild("Conversation", ImVec2(0, -composerHeight))) {
-    ImGui::TextDisabled("Pair mode / placeholder");
-    ImGui::Spacing();
-    ImGui::TextWrapped("The agent conversation will appear here.");
-    ImGui::TextWrapped("This first version only displays the layout and mock code.");
+void DrawAssembly() {
+  Heading("Assembly");
+  const auto& rows = model.functions[model.selected].assembly;
+  const bool exact = model.instruction >= 0 && rows[model.instruction].codeLine >= 0;
+  ImGui::TextDisabled("%s", exact ? "Mapped to selected code" : "No exact mapping / containing function");
+  if (model.partial) Wrapped("Partial replay: showing the last saved fixture listing.");
+  if (ImGui::BeginChild("Assembly rows", ImVec2(0, 0), 0, ImGuiWindowFlags_HorizontalScrollbar)) {
+    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
+      const auto& row = rows[i];
+      const auto label = row.address + "   " + row.text;
+      const bool mapped = row.codeLine >= std::min(model.line, model.anchor) &&
+                          row.codeLine <= std::max(model.line, model.anchor);
+      ImGui::PushID(i);
+      if (ImGui::Selectable(label.c_str(), i == model.instruction || mapped, 0,
+                            ImVec2(std::max(ImGui::GetContentRegionAvail().x,
+                                           ImGui::CalcTextSize(label.c_str()).x), 0)))
+        model.SelectInstruction(i);
+      ImGui::PopID();
+    }
   }
   ImGui::EndChild();
-  ImGui::TextUnformatted("Ask about the selected code");
-  // Disabled controls show their future position without suggesting they work.
-  ImGui::BeginDisabled();
-  // This one-character buffer holds only the terminating '\0' of an empty
-  // C string. A working editor will need a larger buffer that survives frames.
-  char prompt[1] = {};
-  // "##Prompt" is an internal widget ID with no visible label. -1 uses almost
-  // all available width, while 100 is the requested text-box height.
-  ImGui::InputTextMultiline("##Prompt", prompt, sizeof(prompt), ImVec2(-1, 100));
-  ImGui::Button("Send");
+}
+
+void DrawEvidence() {
+  const auto& f = model.functions[model.selected];
+  Wrapped("Backend evidence / synthetic fixture");
+  ImGui::Text("Location: %s / lines %d-%d", f.name.c_str(),
+      std::min(model.line, model.anchor) + 1, std::max(model.line, model.anchor) + 1);
+  ImGui::Text("Producer: mock fixture / revision %d", model.revision);
+  ImGui::Text("Evidence ID: demo-function-%d", model.selected);
+  ImGui::Text("Completeness: %s", model.partial ? "Partial replay; saved listing" : "Complete fixture listing");
+  if (ImGui::TreeNode("Selected evidence text")) {
+    for (int i = std::min(model.line, model.anchor); i <= std::max(model.line, model.anchor); ++i)
+      Wrapped(f.code[i]);
+    ImGui::TreePop();
+  }
+}
+
+void BeginEdit() {
+  // Capture both identity and revision for the preview. A later selection must
+  // not redirect the pending edit to a different function.
+  editFunction = model.selected;
+  editRevision = model.revision;
+  const auto& f = model.functions[editFunction];
+  editBefore = editKind == 0 ? f.name : editKind == 1 ? f.signature : f.variableType;
+  editValue = editBefore;
+  ImGui::OpenPopup("Review annotation");
+}
+
+void DrawEdits() {
+  Wrapped("Annotations are session-only user assertions. They do not patch a binary.");
+  ImGui::SetNextItemWidth(160);
+  ImGui::Combo("Annotation", &editKind, "Function name\0Signature\0Variable type\0");
+  ImGui::BeginDisabled(model.Busy() || model.Dirty() || model.showNotes);
+  if (ImGui::Button("Review change...")) BeginEdit();
   ImGui::EndDisabled();
-  ImGui::TextDisabled("No provider connected");
+  Wrapped("A rename updates this declaration; captured call-site text stays as supplied. Type changes update metadata only.");
+  if (ImGui::BeginPopupModal("Review annotation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::Text("Function: %s / revision %d", model.functions[editFunction].name.c_str(), editRevision);
+    Wrapped("Before: " + editBefore);
+    ImGui::SetNextItemWidth(480);
+    if (editKind == 2) {
+      if (ImGui::BeginCombo("After", editValue.c_str())) {
+        for (const char* type : {"int", "unsigned int", "byte*", "const byte*", "size_t"})
+          if (ImGui::Selectable(type, editValue == type)) editValue = type;
+        ImGui::EndCombo();
+      }
+    } else ImGui::InputText("After", &editValue);
+    Wrapped("Applying expires old citations and clears pending references.");
+    if (ImGui::Button("Apply annotation")) {
+      if (model.ApplyEdit(editFunction, editRevision, editKinds[editKind], editValue))
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+    Wrapped(model.status);
+    ImGui::EndPopup();
+  }
+}
+
+// ImGui calls this while the command input has focus. Its buffer-edit methods
+// also keep the cursor and std::string adapter in sync; do not replace Buf.
+int ConsoleCallback(ImGuiInputTextCallbackData* data) {
+  std::string replacement;
+  if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
+    replacement = model.RecallHistory(data->EventKey == ImGuiKey_UpArrow ? -1 : 1, data->Buf);
+  } else if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
+    const auto matches = mock::Workbench::Completions(data->Buf);
+    if (matches.size() == 1) replacement = matches.front() + " ";
+    else {
+      std::string list = matches.empty() ? "No command matches." : "Commands:";
+      for (const auto& match : matches) list += " " + match;
+      model.Log(list);
+      scrollConsole = true;
+      return 0;
+    }
+  }
+  data->DeleteChars(0, data->BufTextLen);
+  data->InsertChars(0, replacement.c_str());
+  return 0;
+}
+
+void DrawConsole() {
+  if (ImGui::SmallButton("Clear")) model.console.clear();
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Copy log")) {
+    std::string text;
+    for (const auto& row : model.console) text += row + "\n";
+    ImGui::SetClipboardText(text.c_str());
+  }
+  ImGui::SameLine();
+  consoleFilter.Draw("Filter", 130);
+  const float inputHeight = ImGui::GetFrameHeightWithSpacing();
+  if (ImGui::BeginChild("Console output", ImVec2(0, -inputHeight))) {
+    for (const auto& row : model.console)
+      if (consoleFilter.PassFilter(row.c_str())) Wrapped(row);
+    if (scrollConsole) { ImGui::SetScrollHereY(1); scrollConsole = false; }
+  }
+  ImGui::EndChild();
+  if (focusConsole) { ImGui::SetKeyboardFocusHere(); focusConsole = false; }
+  ImGui::SetNextItemWidth(-1);
+  const auto flags = ImGuiInputTextFlags_EnterReturnsTrue |
+                     ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackCompletion;
+  if (ImGui::InputTextWithHint("##Command", "help / Up-Down history / Tab complete", &command, flags, ConsoleCallback)) {
+    model.Execute(command);
+    command.clear();
+    scrollConsole = focusConsole = true;
+  }
+}
+
+void DrawInspector() {
+  if (!ImGui::BeginTabBar("Inspector tabs")) return;
+  if (ImGui::BeginTabItem("Evidence")) { DrawEvidence(); ImGui::EndTabItem(); }
+  if (ImGui::BeginTabItem("Edits")) { DrawEdits(); ImGui::EndTabItem(); }
+  if (ImGui::BeginTabItem("Activity")) {
+    for (auto it = model.activity.rbegin(); it != model.activity.rend(); ++it) Wrapped(*it);
+    ImGui::EndTabItem();
+  }
+  if (ImGui::BeginTabItem("Console", nullptr, selectConsole ? ImGuiTabItemFlags_SetSelected : 0)) {
+    DrawConsole(); ImGui::EndTabItem();
+  }
+  selectConsole = false;
+  ImGui::EndTabBar();
+}
+
+void DrawCode() {
+  const float available = ImGui::GetContentRegionAvail().y;
+  // Keep the screenshot's stacked layout. Each child scrolls independently,
+  // so smaller windows do not lose access to controls or long text.
+  if (ImGui::BeginChild("Pseudocode", ImVec2(0, available * 0.40f), ImGuiChildFlags_Borders)) {
+    if (model.showNotes) DrawNotes(); else DrawPseudocode();
+  }
+  ImGui::EndChild();
+  if (ImGui::BeginChild("Assembly", ImVec2(0, available * 0.25f), ImGuiChildFlags_Borders))
+    DrawAssembly();
+  ImGui::EndChild();
+  if (ImGui::BeginChild("Inspector", ImVec2(0, 0), ImGuiChildFlags_Borders)) DrawInspector();
+  ImGui::EndChild();
+}
+
+void DrawCitation(const mock::Reference& ref) {
+  const bool stale = ref.revision != model.revision;
+  const auto label = ref.name + " : " + std::to_string(ref.firstLine + 1) + "-" +
+      std::to_string(ref.lastLine + 1) + (stale ? " (expired)" : "");
+  ImGui::BeginDisabled(stale || model.Dirty());
+  if (ImGui::SmallButton(label.c_str())) model.FollowReference(ref);
+  ImGui::EndDisabled();
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32);
+    ImGui::Text("Captured revision %d", ref.revision);
+    ImGui::TextUnformatted(ref.text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+  }
+}
+
+void DrawAgent() {
+  Heading("Agent / scripted preview");
+  const float composerHeight = 100 + ImGui::GetFrameHeightWithSpacing() * 3 +
+                               (model.references.empty() ? 0 : 86);
+  if (ImGui::BeginChild("Conversation", ImVec2(0, -composerHeight))) {
+    const bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 8;
+    for (int i = 0; i < static_cast<int>(model.messages.size()); ++i) {
+      ImGui::PushID(i);
+      const auto& message = model.messages[i];
+      ImGui::TextDisabled("%s", message.role.c_str());
+      Wrapped(message.text);
+      for (int j = 0; j < static_cast<int>(message.references.size()); ++j) {
+        ImGui::PushID(j); DrawCitation(message.references[j]); ImGui::PopID();
+      }
+      ImGui::Separator();
+      ImGui::PopID();
+    }
+    if (model.operation == mock::Operation::Chat) {
+      ImGui::TextDisabled("Agent (streaming mock reply)");
+      Wrapped(model.streaming);
+    }
+    if (scrollChat || atBottom) { ImGui::SetScrollHereY(1); scrollChat = false; }
+  }
+  ImGui::EndChild();
+  if (!model.references.empty()) {
+    int remove = -1;
+    if (ImGui::BeginChild("Pending references", ImVec2(0, 78), ImGuiChildFlags_Borders)) {
+      for (const auto& ref : model.references) {
+        ImGui::PushID(ref.id);
+        DrawCitation(ref);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(model.Busy());
+        if (ImGui::SmallButton("x")) remove = ref.id;
+        ImGui::EndDisabled();
+        ImGui::PopID();
+      }
+    }
+    ImGui::EndChild();
+    // Erase after iterating: changing the vector inside the loop invalidates refs.
+    if (remove >= 0) model.RemoveReference(remove);
+  }
+  ImGui::TextUnformatted("Ask about the selected code");
+  ImGui::InputTextMultiline("##Prompt", &prompt, ImVec2(-1, 100));
+  ImGui::BeginDisabled(model.Busy() || model.Dirty() || model.showNotes || prompt.empty());
+  if (ImGui::Button("Send")) {
+    if (model.Send(prompt)) { prompt.clear(); scrollChat = true; }
+  }
+  ImGui::EndDisabled();
+  if (model.operation == mock::Operation::Chat) {
+    ImGui::SameLine();
+    if (ImGui::Button("Stop reply")) model.Cancel();
+  }
+  ImGui::TextDisabled("Context unknown / offline mock");
 }
 } // namespace
 
 void SetWorkbenchStyle() {
   ImGui::StyleColorsDark();
-  // GetStyle returns a reference to ImGui's shared style, so assignments below
-  // change the actual interface. This setup runs once, when the app starts.
   ImGuiStyle& style = ImGui::GetStyle();
-  style.FontSizeBase = 16.0f;
+  style.FontSizeBase = 16;
   style.WindowPadding = ImVec2(10, 10);
   style.FramePadding = ImVec2(8, 5);
   style.ItemSpacing = ImVec2(8, 8);
   style.ChildRounding = 0;
   style.FrameRounding = 3;
-  // ImVec4 color values are red, green, blue, and opacity, each from 0 to 1.
+  // Color components are red, green, blue and opacity, each between 0 and 1.
   style.Colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.10f, 0.13f, 1);
   style.Colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.13f, 0.17f, 1);
   style.Colors[ImGuiCol_Text] = ImVec4(0.85f, 0.89f, 0.93f, 1);
@@ -170,48 +395,43 @@ void SetWorkbenchStyle() {
   style.Colors[ImGuiCol_Header] = ImVec4(0.14f, 0.24f, 0.36f, 1);
 }
 
+bool WorkbenchHasUnsavedNotes() { return model.Dirty(); }
+void DiscardWorkbenchNotes() { model.DiscardNotes(); }
+
 void DrawWorkbench() {
-  // The viewport describes the app's drawing area. These "SetNext" calls apply
-  // to the next Begin call, making this ImGui container fill the native window.
+  // Time advances only mock progress; no worker threads or x64 tools are needed.
+  model.Tick(ImGui::GetIO().DeltaTime);
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->WorkPos);
   ImGui::SetNextWindowSize(viewport->WorkSize);
-  // | combines options: no extra ImGui title bar, no dragging this container,
-  // and no saved position. The surrounding macOS window still moves/resizes.
-  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
-                                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+  const auto flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoSavedSettings;
   if (ImGui::Begin("IndagoRev mock workspace", nullptr, flags)) {
     DrawHeader();
-    // Leave one row below the workspace for the status text.
-    const float statusHeight = ImGui::GetFrameHeightWithSpacing();
-    if (ImGui::BeginChild("Workspace", ImVec2(0, -statusHeight))) {
-      // A single table row provides three resizable layout columns. Project
-      // and Agent have starting widths; Code stretches into the remaining room.
+    if (ImGui::BeginChild("Workspace", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()))) {
+      // These are layout columns, not alternate code views. Code and assembly
+      // always remain stacked. Drag a column boundary to change panel widths.
       if (ImGui::BeginTable("Columns", 3, ImGuiTableFlags_Resizable)) {
         ImGui::TableSetupColumn("Project", ImGuiTableColumnFlags_WidthFixed, 210);
         ImGui::TableSetupColumn("Code", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Agent", ImGuiTableColumnFlags_WidthFixed, 280);
+        ImGui::TableSetupColumn("Agent", ImGuiTableColumnFlags_WidthFixed, 300);
         ImGui::TableNextRow();
-        // Each TableNextColumn moves the drawing position into the next column.
-        // Child containers give the panels their own boundaries and scrolling.
         ImGui::TableNextColumn();
-        if (ImGui::BeginChild("Project panel", ImVec2(0, 0), ImGuiChildFlags_Borders))
-          DrawProject();
+        if (ImGui::BeginChild("Project panel", ImVec2(0, 0), ImGuiChildFlags_Borders)) DrawProject();
         ImGui::EndChild();
         ImGui::TableNextColumn();
-        if (ImGui::BeginChild("Code panels", ImVec2(0, 0)))
-          DrawCode();
+        if (ImGui::BeginChild("Code panels", ImVec2(0, 0))) DrawCode();
         ImGui::EndChild();
         ImGui::TableNextColumn();
-        if (ImGui::BeginChild("Agent panel", ImVec2(0, 0), ImGuiChildFlags_Borders))
-          DrawAgent();
+        if (ImGui::BeginChild("Agent panel", ImVec2(0, 0), ImGuiChildFlags_Borders)) DrawAgent();
         ImGui::EndChild();
         ImGui::EndTable();
       }
     }
     ImGui::EndChild();
-    ImGui::TextDisabled("Mock data / select a function to explore the layout");
+    ImGui::TextDisabled("%s", model.status.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", model.status.c_str());
   }
-  // Like BeginChild/EndChild, Begin/End must be paired even if Begin is false.
+  // Begin/End and BeginChild/EndChild must pair even when Begin returns false.
   ImGui::End();
 }

@@ -12,7 +12,7 @@
 // A delegate receives callbacks from macOS. This object handles both app events
 // (launch/quit) and requests from the Metal view to draw another frame.
 // "strong" properties keep these objects alive; ARC releases them automatically.
-@interface WorkbenchApp : NSObject <NSApplicationDelegate, MTKViewDelegate>
+@interface WorkbenchApp : NSObject <NSApplicationDelegate, NSWindowDelegate, MTKViewDelegate>
 @property(nonatomic, strong) NSWindow* window;
 @property(nonatomic, strong) MTKView* view;
 @property(nonatomic, strong) id<MTLCommandQueue> queue;
@@ -42,6 +42,7 @@
   self.window.title = @"IndagoRev - Mock Workbench";
   self.window.contentMinSize = NSMakeSize(1000, 680);
   self.window.releasedWhenClosed = NO;
+  self.window.delegate = self;
   // NSWindow supplies the title bar and resizing. MTKView is the drawable area
   // inside it, where Metal displays the GUI.
   self.view = [[MTKView alloc] initWithFrame:bounds device:device];
@@ -112,6 +113,30 @@
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)app {
   return YES;
+}
+
+// Both the red close button and Command-Q use this check. Cancelling the alert
+// must leave the window visible, so windowShouldClose checks before it closes.
+- (BOOL)confirmDiscardNotes {
+  if (!WorkbenchHasUnsavedNotes())
+    return YES;
+  NSAlert* alert = [[NSAlert alloc] init];
+  alert.messageText = @"Discard unsaved mock notes?";
+  alert.informativeText = @"Notes are kept only for this session. Cancel to copy them before quitting.";
+  [alert addButtonWithTitle:@"Cancel"];
+  [alert addButtonWithTitle:@"Discard and quit"];
+  if ([alert runModal] != NSAlertSecondButtonReturn)
+    return NO;
+  DiscardWorkbenchNotes();
+  return YES;
+}
+
+- (BOOL)windowShouldClose:(NSWindow*)sender {
+  return [self confirmDiscardNotes];
+}
+
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)sender {
+  return [self confirmDiscardNotes] ? NSTerminateNow : NSTerminateCancel;
 }
 
 - (void)applicationWillTerminate:(NSNotification*)notification {

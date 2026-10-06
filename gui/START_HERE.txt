@@ -7,20 +7,67 @@ Prerequisites: CMake and Apple's Command Line Tools (already present on this Mac
 
 Once built, you can also open out/gui-macos/IndagoRev.app from the project folder.
 
-What works now:
-- The first design: project left, pseudocode ABOVE assembly, agent right.
-- Clicking a function updates the synthetic code and evidence text.
-- Evidence, Edits, and Activity tabs; resizing the window and column widths.
-- Closing the window or pressing Command-Q quits the application.
+Try the workbench:
+1. Select decode_buffer in the function list. Filter by name or address, or type
+   0x140001128 in the navigation field and press Enter.
+2. Click a code line. Shift-click another line to select a range. The assembly
+   highlights the mapped instructions. Clicking assembly selects matching code;
+   unmapped instructions show the containing function instead.
+3. Click Add reference. Hover a reference to inspect its captured quote. Type a
+   question in Agent and click Send. The sample reply streams for 2.5 seconds.
+   Click a citation to return to its code. Stop reply cancels and keeps references.
+4. Open Edits, choose an annotation and Review change. Apply a valid name,
+   signature or listed type. This updates mock metadata and the revision, expires
+   old citations, and clears pending references. It does not rewrite call sites
+   or patch a binary. These are user assertions, not backend facts.
+5. Open notes.md to edit notes. Save notes keeps a session copy; Discard restores
+   it. Copy notes lets you retain the text elsewhere. Unsaved changes block
+   navigation/analysis and trigger a warning when closing the app.
+6. Replay analysis shows progress and can be cancelled. Settings offers normal,
+   partial-analysis and chat-failure scenarios, plus theme and text size.
+7. Read Evidence for provenance and Activity for recent actions.
 
-The chat controls are placeholders and disabled. No binary is analyzed or run.
+The first design is retained: project left, pseudocode ABOVE assembly, agent
+right, inspector below. Drag column boundaries to resize. There is no compare
+layout. No binary is analyzed or executed and no AI provider is contacted.
+All notes, annotations, settings and history reset when the app closes, including
+notes marked saved. Copy any notes you want to keep before quitting.
+
+Mock command console:
+Click Console in the header or inspector. Enter runs a command, Up/Down recalls
+history, and Tab completes a command name. Copy log copies the whole log; the
+filter only affects its display. Logs and history have bounded in-memory sizes.
+
+  help                       List available commands
+  functions                  List the four mock functions and addresses
+  open decode_buffer         Select a function (current names are accepted)
+  goto 0x140001128            Select a known instruction address
+  open notes                 Open the notes editor
+  status                     Show revision, operation and completeness
+  analyze                    Start a mock analysis replay
+  cancel                     Cancel analysis or a scripted reply
+  refs                       List pending code references
+  explain What is this?      Send a scripted question about referenced/current code
+  rename decode_bytes        Apply a session-only rename to the selected function
+  history                    Print command history
+  clear                      Clear console output, retaining command history
+
+The console only recognizes this command list. It cannot run system commands.
+Chat answers are fixed explanations of the first attached function (or current
+selection without an attachment), not interpretations of arbitrary questions.
 
 Read the code in this order:
-1. workbench.cpp: mock text, panel functions, colors, and DrawWorkbench().
-2. workbench.hpp: the two function declarations used by the window code.
-3. main_macos.mm: Mac window creation and the frame loop that calls DrawWorkbench().
+1. mock_workbench.hpp: the small data records and public actions/state.
+2. mock_workbench.cpp: synthetic functions, selection, references, notes, edits,
+   progress, scripted replies, and the command parser. This is ordinary C++.
+3. workbench.cpp: start at DrawWorkbench(), then read the panel functions it
+   calls. Controls invoke model actions; values that survive frames live outside
+   drawing functions. ConsoleCallback handles history/completion while typing.
+4. workbench.hpp: the interface between the window adapter and shared GUI.
+5. main_macos.mm: Mac window creation and the frame loop that calls DrawWorkbench().
    The .mm extension allows Apple's Objective-C APIs alongside C++.
-4. CMakeLists.txt: selects the sources and frameworks needed to build the app.
+6. CMakeLists.txt: selects the sources and frameworks needed to build the app.
+7. tests/mock_workbench_tests.cpp: model checks without a graphics window.
 
 vendor/imgui/backends contains unchanged official Dear ImGui platform code.
 You do not need to edit those files to change the GUI layout.
@@ -30,4 +77,25 @@ Terminal alternative (run from the project root):
   cmake --build out/gui-macos --parallel 4
   open out/gui-macos/IndagoRev.app
 
-The existing Windows GUI and analysis tools are separate from this Mac mock app.
+Run the model checks:
+  ctest --test-dir out/gui-macos --output-on-failure
+
+Windows mock mode (Visual Studio C++ desktop tools, Windows SDK, and CMake):
+  cmake -S gui -B out/gui-windows -A x64
+  cmake --build out/gui-windows --config Debug
+  ctest --test-dir out/gui-windows -C Debug --output-on-failure
+  out\gui-windows\Debug\indago-gui.exe --mock
+
+main.cpp supplies the existing Win32/D3D11 window. --mock calls the same
+DrawWorkbench() used on Mac; running without --mock keeps the existing live GUI.
+The Windows path must still be built and checked on Windows; Mac tests cannot
+validate Win32/D3D11. The shared model/UI contain no operating-system API calls.
+
+For later real-tool integration, keep the panel layout and replace the model's
+fixture-producing actions one at a time. Preserve the captured reference text,
+revision checks, busy state, and cancellation rules. Do not execute tools inside
+drawing functions: poll completed results into the model before drawing a frame.
+Start by replacing the function list, then listings/mappings, then analysis and
+chat. Check each behavior with its own small commit before moving on.
+
+CMake output belongs in out/. It is ignored by Git and is not source code.
