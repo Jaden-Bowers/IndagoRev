@@ -10,6 +10,10 @@
 // Start reading at DrawWorkbench() to see how the panels fit together.
 namespace {
 mock::Workbench model;
+// Layout is presentation state, not project data. Both views draw the same
+// model, so changing views cannot reset a selection, draft, or running reply.
+enum class Layout { Stacked, Compare };
+Layout layout = Layout::Stacked;
 ImGuiTextFilter functionFilter, consoleFilter;
 std::string address, prompt, command;
 bool selectConsole = false, focusConsole = false;
@@ -26,6 +30,27 @@ void Wrapped(const std::string& text) {
   ImGui::PopTextWrapPos();
 }
 void Heading(const char* text) { ImGui::SeparatorText(text); }
+
+// Keep related controls together when they fit; otherwise let ImGui start a
+// new row. Compare panes can be much narrower than the original stacked pane.
+void SameLineIfFits(const char* label) {
+  const auto& style = ImGui::GetStyle();
+  const float width = ImGui::CalcTextSize(label).x + style.FramePadding.x * 2;
+  const float right = ImGui::GetItemRectMax().x + style.ItemSpacing.x + width;
+  const float edge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+  if (right <= edge) ImGui::SameLine();
+}
+
+void DrawLayoutButton() {
+  const bool compare = layout == Layout::Compare;
+  const char* label = compare ? "Stacked layout" : "Compare layout";
+  if (ImGui::Button(label))
+    layout = compare ? Layout::Stacked : Layout::Compare;
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s", compare ? "Place pseudocode above assembly" :
+                                     "Place pseudocode beside assembly");
+  }
+}
 
 void DrawSettings() {
   if (!ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
@@ -50,6 +75,8 @@ void DrawHeader() {
   ImGui::TextUnformatted("[i]  IndagoRev / Decoder study");
   ImGui::SameLine();
   ImGui::TextColored(ImVec4(0.85f, 0.60f, 0.20f, 1), "MOCK DATA");
+  ImGui::SameLine();
+  DrawLayoutButton();
   ImGui::SameLine();
   if (ImGui::Button("Console")) selectConsole = focusConsole = true;
   ImGui::SameLine();
@@ -109,9 +136,9 @@ void DrawNotes() {
   Heading("notes.md");
   Wrapped("Session-only notes. Copy the text to keep it after closing the app.");
   if (ImGui::Button("Save notes")) model.SaveNotes();
-  ImGui::SameLine();
+  SameLineIfFits("Discard changes");
   if (ImGui::Button("Discard changes")) model.DiscardNotes();
-  ImGui::SameLine();
+  SameLineIfFits("Copy notes");
   if (ImGui::Button("Copy notes")) ImGui::SetClipboardText(model.notes.c_str());
   ImGui::TextDisabled("%s", model.Dirty() ? "Unsaved changes" : "Saved in this session");
   ImGui::InputTextMultiline("##Notes", &model.notes, ImVec2(-1, -1));
@@ -120,12 +147,14 @@ void DrawNotes() {
 void DrawPseudocode() {
   const auto& f = model.functions[model.selected];
   Heading("Pseudocode");
-  ImGui::TextDisabled("%s / %s", f.name.c_str(), f.address.c_str());
+  ImGui::TextDisabled("%s", f.name.c_str());
+  SameLineIfFits(f.address.c_str());
+  ImGui::TextDisabled("%s", f.address.c_str());
   ImGui::BeginDisabled(model.Busy() || model.Dirty());
   if (ImGui::Button("Add reference")) model.AddReference();
   ImGui::EndDisabled();
-  ImGui::SameLine();
-  ImGui::TextDisabled("Click a line; Shift-click for a range");
+  SameLineIfFits("Shift-click for a range");
+  ImGui::TextDisabled("Shift-click for a range");
   ImGui::Separator();
   // The inner child permits horizontal scrolling for long declarations.
   if (ImGui::BeginChild("Code rows", ImVec2(0, 0), 0, ImGuiWindowFlags_HorizontalScrollbar)) {
@@ -148,18 +177,24 @@ void DrawAssembly() {
   Heading("Assembly");
   const auto& rows = model.functions[model.selected].assembly;
   const bool exact = model.instruction >= 0 && rows[model.instruction].codeLine >= 0;
-  ImGui::TextDisabled("%s", exact ? "Mapped to selected code" : "No exact mapping / containing function");
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+  Wrapped(exact ? "Mapped to selected code" : "No exact mapping / containing function");
+  ImGui::PopStyleColor();
   if (model.partial) Wrapped("Partial replay: showing the last saved fixture listing.");
   if (ImGui::BeginChild("Assembly rows", ImVec2(0, 0), 0, ImGuiWindowFlags_HorizontalScrollbar)) {
     for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
       const auto& row = rows[i];
-      const auto label = row.address + "   " + row.text;
+      // The reference design places the address above its instruction in the
+      // narrower compare pane. The selectable still represents one instruction.
+      const bool compare = layout == Layout::Compare;
+      const auto label = row.address + (compare ? "\n" : "   ") + row.text;
+      const float rowHeight = compare ? ImGui::GetTextLineHeight() * 2 : 0;
       const bool mapped = row.codeLine >= std::min(model.line, model.anchor) &&
                           row.codeLine <= std::max(model.line, model.anchor);
       ImGui::PushID(i);
       if (ImGui::Selectable(label.c_str(), i == model.instruction || mapped, 0,
                             ImVec2(std::max(ImGui::GetContentRegionAvail().x,
-                                           ImGui::CalcTextSize(label.c_str()).x), 0)))
+                                           ImGui::CalcTextSize(label.c_str()).x), rowHeight)))
         model.SelectInstruction(i);
       ImGui::PopID();
     }
@@ -289,17 +324,50 @@ void DrawInspector() {
   ImGui::EndTabBar();
 }
 
-void DrawCode() {
-  const float available = ImGui::GetContentRegionAvail().y;
-  // Keep the screenshot's stacked layout. Each child scrolls independently,
-  // so smaller windows do not lose access to controls or long text.
-  if (ImGui::BeginChild("Pseudocode", ImVec2(0, available * 0.40f), ImGuiChildFlags_Borders)) {
+void DrawSourcePane(float height) {
+  if (ImGui::BeginChild("Pseudocode", ImVec2(0, height), ImGuiChildFlags_Borders)) {
     if (model.showNotes) DrawNotes(); else DrawPseudocode();
   }
   ImGui::EndChild();
-  if (ImGui::BeginChild("Assembly", ImVec2(0, available * 0.25f), ImGuiChildFlags_Borders))
+}
+
+void DrawAssemblyPane(float height) {
+  if (ImGui::BeginChild("Assembly", ImVec2(0, height), ImGuiChildFlags_Borders))
     DrawAssembly();
   ImGui::EndChild();
+}
+
+void DrawStackedCode(float available) {
+  // Preserve the original layout's proportions and independently scrolling panes.
+  DrawSourcePane(available * 0.40f);
+  DrawAssemblyPane(available * 0.25f);
+}
+
+void DrawCompareCode(float available) {
+  // One table row places the existing panes beside each other. Equal starting
+  // widths match GUI_Layout2; dragging their divider adjusts the comparison.
+  // Explicit child heights bound the table so the inspector fits underneath.
+  const auto flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchSame;
+  if (ImGui::BeginTable("Compare code columns", 2, flags)) {
+    ImGui::TableSetupColumn("Pseudocode", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("Assembly", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    DrawSourcePane(available * 0.50f);
+    ImGui::TableNextColumn();
+    DrawAssemblyPane(available * 0.50f);
+    ImGui::EndTable();
+  }
+}
+
+void DrawCode() {
+  const float available = ImGui::GetContentRegionAvail().y;
+  if (layout == Layout::Compare)
+    DrawCompareCode(available);
+  else
+    DrawStackedCode(available);
+  // The inspector stays outside the compare table and spans both code panes.
+  // Keeping its parent and ID unchanged also preserves the active inspector tab.
   if (ImGui::BeginChild("Inspector", ImVec2(0, 0), ImGuiChildFlags_Borders)) DrawInspector();
   ImGui::EndChild();
 }
@@ -409,8 +477,8 @@ void DrawWorkbench() {
   if (ImGui::Begin("IndagoRev mock workspace", nullptr, flags)) {
     DrawHeader();
     if (ImGui::BeginChild("Workspace", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()))) {
-      // These are layout columns, not alternate code views. Code and assembly
-      // always remain stacked. Drag a column boundary to change panel widths.
+      // The outer columns are shared by both layouts. Only DrawCode changes the
+      // arrangement in the middle; project and chat keep their state and widths.
       if (ImGui::BeginTable("Columns", 3, ImGuiTableFlags_Resizable)) {
         ImGui::TableSetupColumn("Project", ImGuiTableColumnFlags_WidthFixed, 210);
         ImGui::TableSetupColumn("Code", ImGuiTableColumnFlags_WidthStretch);

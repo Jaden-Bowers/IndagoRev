@@ -27,9 +27,15 @@ Try the workbench:
    partial-analysis and chat-failure scenarios, plus theme and text size.
 7. Read Evidence for provenance and Activity for recent actions.
 
-The first design is retained: project left, pseudocode ABOVE assembly, agent
-right, inspector below. Drag column boundaries to resize. There is no compare
-layout. No binary is analyzed or executed and no AI provider is contacted.
+Use Compare layout in the header to place pseudocode beside assembly, as in
+GUI_Layout2.png. The inspector spans both panes below, and assembly addresses
+appear above their instructions. Drag the middle divider to resize the panes.
+The same button becomes Stacked layout to return to pseudocode ABOVE assembly.
+Project and Agent stay in place. Selection, references, notes, drafts, inspector
+tab, console history and running operations survive switching views.
+The app starts in Stacked layout each session. Notes use the pseudocode pane in
+either layout; switching layouts does not save or discard an unfinished edit.
+No binary is analyzed or executed and no AI provider is contacted.
 All notes, annotations, settings and history reset when the app closes, including
 notes marked saved. Copy any notes you want to keep before quitting.
 
@@ -63,6 +69,8 @@ Read the code in this order:
 3. workbench.cpp: start at DrawWorkbench(), then read the panel functions it
    calls. Controls invoke model actions; values that survive frames live outside
    drawing functions. ConsoleCallback handles history/completion while typing.
+   DrawCode chooses DrawStackedCode or DrawCompareCode; both reuse DrawSourcePane
+   and DrawAssemblyPane. The Layout enum only controls presentation.
 4. workbench.hpp: the interface between the window adapter and shared GUI.
 5. main_macos.mm: Mac window creation and the frame loop that calls DrawWorkbench().
    The .mm extension allows Apple's Objective-C APIs alongside C++.
