@@ -170,7 +170,7 @@ export class Desktop {
    if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid provider URL');
    if(url.protocol==='http:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))throw Error('Remote providers require HTTPS');
    let lastMessage=null;
-   const options={...this.config,target:this.file,model:r.model||'huihui-qwen3.8-27b-abliterated',endpoint,provider:r.provider||'lmstudio',apiKeyEnv:r.apiKeyEnv||undefined,contextTokens,outputTokens,prompt,timeout:540000,maxGenerations:16,signal,onEvent:event=>{if(event.type==='message_end'&&event.message?.role==='assistant')lastMessage=event.message;this.emit({event});}};
+   const options={...this.config,selection:refs,target:this.file,model:r.model||'huihui-qwen3.8-27b-abliterated',endpoint,provider:r.provider||'lmstudio',apiKeyEnv:r.apiKeyEnv||undefined,contextTokens,outputTokens,prompt,timeout:540000,maxGenerations:16,signal,onEvent:event=>{if(event.type==='message_end'&&event.message?.role==='assistant')lastMessage=event.message;this.emit({event});}};
    atomic(path.join(this.config.state,'ui.json'),{provider:options.provider,endpoint,model:options.model,apiKeyEnv:options.apiKeyEnv??'',contextTokens,outputTokens});
    atomic(path.join(this.config.state,'references',crypto.randomUUID()+'.json'),{request:r.text,references:refs});
    const result=await this.launch(options);

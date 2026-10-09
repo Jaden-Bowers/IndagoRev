@@ -83,6 +83,10 @@ export async function launch(options) {
     config.active = native.active;
   }
   if(enabled(config,'environment') || enabled(config,'surface')) config.environment=await resolveEnvironment(config);
+  if(config.mode!=='plain'){
+    config.toolCapabilities=(await native.capabilities(options.signal)).data;
+    config.toolRoute=(await native.route(options.signal)).data;
+  }
   atomic(configFile, config);
   const agentDir = path.join(config.state, "pi");
   fs.mkdirSync(agentDir, { recursive: true });

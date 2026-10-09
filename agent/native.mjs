@@ -243,7 +243,7 @@ export class Native {
     return this.catalogue;
   }
   async analyze(
-    { backend, operation, address, arguments: arguments_ = {}, target_id },
+    { backend, operation, address, arguments: arguments_ = {}, target_id, view = 'compact', limit = 2048 },
     signal,
   ) {
     if (target_id && target_id !== this.active.id)
@@ -267,13 +267,13 @@ export class Native {
         backend,
         operation,
         address: address ?? "",
-        view: "compact",
+        view,
         arguments: arguments_,
         budget: {
           wall_ms: 60000,
           output_bytes: 2097152,
           memory_bytes: 2147483648,
-          max_items: 2048,
+          max_items: limit,
         },
       },
       { signal, timeout: 90000 },

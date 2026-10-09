@@ -7,6 +7,7 @@ import { ContextStore, excerpt, requestManifest } from "./context.mjs";
 import { guidance } from "./guidance.mjs";
 import {enabled, finalText, Investigation, Progress, extractMember} from './improvements.mjs';
 import {strings} from './helper.mjs';
+import {ToolAdapters} from './tool-adapters.mjs';
 
 export default function (pi: any) {
   const config = JSON.parse(
@@ -75,6 +76,16 @@ export default function (pi: any) {
   if (config.mode === "plain") return;
   const native = new Native(config),
     history = new Map<string, number>();
+  const adapters=new ToolAdapters(native,config);
+  const activateDirect=()=>{
+    const primary=new Set(['functions','decompile','xrefs','ghidra_assembly','ghidra_calls','xair_inventory','xair_cfg','airece_slice','airece_flow','sym_solve_branch','managed_inventory','managed_methods','managed_decompile','packet_inspect']);
+    const groups=adapters.activeGroups();
+    const registryNames=new Set(adapters.registry.list().map((e:any)=>e.name));
+    const baseline=pi.getActiveTools().filter((n:string)=>!registryNames.has(n));
+    const enabledTools=adapters.registry.list().filter((e:any)=>primary.has(e.name)&&groups.has(e.group)&&config.toolCapabilities?.backends?.some((b:any)=>b.available&&b.name===e.route.backend));
+    pi.setActiveTools([...new Set([...baseline,...enabledTools.map((e:any)=>e.name)])]);
+  };
+  for(const e of adapters.registry.list())pi.registerTool({name:e.name,label:e.name,description:e.description,parameters:Type.Unsafe(e.schema),async execute(_id:any,p:any,s:any){return adapters.execute(e.name,p,s);}});
   const memory = new ContextStore(config.state);
   const starts = new Map<string, number>();
   const failures = new Map<string, number>();
@@ -120,6 +131,13 @@ export default function (pi: any) {
       },
     });
   if(enabled(config,'state')) tool('investigation_update','Update the concise working state after a meaningful discovery. Facts must cite a file, offset or receipt. Candidate is not automatically verified.',Type.Object({facts:Type.Optional(Type.Array(Type.String())),candidate:Type.Optional(Type.String()),obligation:Type.Optional(Type.String())}),async(p:any)=>{investigation.update(p);return investigation.data;});
+  tool('evidence_read','Read another bounded page of a returned tool result. Use result_id and next_offset, not host path discovery.',Type.Object({result_id:Type.String(),offset:Type.Optional(Type.Integer({minimum:0})),limit:Type.Optional(Type.Integer({minimum:1,maximum:16000}))}),async(p:any)=>adapters.results.read(p.result_id,p.offset??0,p.limit??8000));
+  tool('tools_search','Find and activate up to eight specialized tools by name, engine, or task. Common artifact tools are already available. Unavailable tools include prerequisites; no shell discovery is needed.',Type.Object({query:Type.String()}),async(p:any,s:any)=>{
+    const available=await adapters.available(s),words=p.query.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches=adapters.registry.list().map((e:any)=>({e,score:words.reduce((n:number,w:string)=>n+(e.name===w?10:(e.name+' '+e.description+' '+e.group).toLowerCase().includes(w)?1:0),0)})).filter((x:any)=>x.score).sort((a:any,b:any)=>b.score-a.score).slice(0,8).map((x:any)=>x.e);
+    const names=new Set(available.map((e:any)=>e.name));pi.setActiveTools([...new Set([...pi.getActiveTools(),...matches.filter((e:any)=>names.has(e.name)).map((e:any)=>e.name)])]);
+    return {tools:matches.map((e:any)=>({name:e.name,description:e.description,available:names.has(e.name),effect:e.effect,parameters:e.schema,example:e.example})),coverage:matches.length?undefined:adapters.registry.coverage(await adapters.capabilities(s))};
+  });
   if(enabled(config,'surface')) tool('artifact_inspect','Direct inspection: strings for binary text; archive_list then archive_extract for installer payloads; bytecode for a JAR/class. Never launches the target.',Type.Object({operation:Type.Union(['strings','archive_list','archive_extract','bytecode'].map(x=>Type.Literal(x))),file:Type.String(),member:Type.Optional(Type.String()),output:Type.Optional(Type.String())}),async(p:any,s:any)=>{
     const file=path.resolve(config.cwd,p.file);
     if(p.operation==='strings'){if(fs.statSync(file).size>33554432)throw Error('32 MiB limit');return {strings:strings(fs.readFileSync(file))};}
@@ -178,6 +196,7 @@ export default function (pi: any) {
     Type.Object({ path: Type.String() }),
     async (p: any, s: any) => {
       const target = await native.import(p.path, s);
+      config.toolRoute=(await native.route(s)).data;config.selection=[];activateDirect();
       if(enabled(config,'state')) investigation.update({artifact:native.active.artifact_sha256});
       return { data: { target, route: (await native.route(s)).data } };
     },
@@ -194,30 +213,6 @@ export default function (pi: any) {
     }),
     (p: any, s: any) => native.analyze(p, s),
   );
-  for (const [name, operation, description] of [
-    [
-      "decompile",
-      "decompile",
-      "Get Ghidra pseudocode at a hexadecimal function address.",
-    ],
-    [
-      "xrefs",
-      "xrefs",
-      "Find Ghidra cross-references at a hexadecimal address.",
-    ],
-    [
-      "functions",
-      "functions",
-      "Discover Ghidra functions in the active program.",
-    ],
-  ])
-    tool(
-      name,
-      description,
-      Type.Object({ address: Type.Optional(Type.String()) }),
-      (p: any, s: any) =>
-        native.analyze({ backend: "ghidra", operation, address: p.address }, s),
-    );
   tool(
     "native_command",
     "Use an existing IndagoRev CLI family directly, including runtime/debugger/captures/reanalysis, graph, transforms and validation. Arguments are an argv array, not shell text; request is optional native JSON. Project and workspace are supplied automatically. Use the shell for CLI help.",
@@ -633,6 +628,7 @@ export default function (pi: any) {
     pi.setActiveTools(
       pi.getActiveTools().filter((name: string) => !hidden.has(name) || (enabled(config,'surface') && ['decompile','functions','xrefs'].includes(name) && /\.(exe|dll|elf|bin)$/i.test(config.active.path))),
     );
+    activateDirect();
   });
   pi.on("session_before_compact", () => {
     atomic(path.join(config.state, "compaction-checkpoint.json"), {
