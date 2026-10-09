@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {hashFile} from './native.mjs';
+import {hashFile,atomic} from './native.mjs';
+import {addRuntime,runtimeReads} from './tools-runtime.mjs';
 import {staticRegistry} from './tools-static.mjs';
 import {validate} from './tool-registry.mjs';
 import {ToolResults} from './tool-results.mjs';
 
 export class ToolAdapters {
- constructor(native,config){this.native=native;this.config=config;this.registry=staticRegistry();this.results=new ToolResults(config.state);this.catalog=config.toolCapabilities;}
+ constructor(native,config){this.native=native;this.config=config;this.registry=addRuntime(staticRegistry());this.results=new ToolResults(config.state);this.catalog=config.toolCapabilities;}
  async capabilities(signal){return this.catalog??=(await this.native.capabilities(signal)).data;}
  binding(){return {target_id:this.native.active?.id,artifact_sha256:this.native.active?.artifact_sha256};}
  async address(value,signal){
@@ -24,6 +25,7 @@ export class ToolAdapters {
   const e=this.registry.get(name);validate(e.schema,input);signal?.throwIfAborted();
   if(e.effect==='annotation'&&!this.config.allowAnnotations)throw Error('Annotation requires an operator-granted session; model arguments cannot grant it');
   const catalog=await this.capabilities(signal);
+  if(e.route.kind==='runtime')return this.runtime(e,input,signal);
   if(e.route.kind==='analysis'){
    const b=catalog.backends?.find(b=>b.name===e.route.backend);
    if(!b?.available||!b.operations.includes(e.route.operation))throw Error(`Unavailable ${e.route.backend}/${e.route.operation}; provision the matching native build/engine, not a shell fallback`);
@@ -37,6 +39,34 @@ export class ToolAdapters {
   }
   throw Error(`Adapter missing for ${name}`);
  }
+ async runtime(e,input,signal){
+  const op=e.route.operation;
+  if(!runtimeReads.has(op)&&this.config.authority!=='host')throw Error('Target interaction requires operator host authority; tool arguments cannot grant it');
+  const p={...input,project:this.config.project};
+  if(['io-run','launch','instrument','record'].includes(op)&&!p.pid){
+   if(hashFile(this.native.active.path)!==this.native.active.artifact_sha256)throw Error('Active target file changed; import it again before execution');
+   p.file=this.native.active.path;
+  }
+  if(op==='io-run'){p.artifact=this.native.active.artifact_sha256;p.trusted_target_ack=true;}
+  if(['record','replay'].includes(op))p.backend='rr';
+  if(['record','replay'].includes(op)&&process.platform==='win32')throw Error('rr requires the supported Linux build/profile. No automatic WSL launch or engine substitution.');
+  // Explicit durable pending marker: a timeout is not evidence the target stopped.
+  const pending=path.join(this.config.state,'runtime-pending.json');
+  const mutation=!runtimeReads.has(op)&&!['request','cancel','detach','terminate'].includes(op);
+  if(mutation&&fs.existsSync(pending))throw Error('An earlier runtime operation has an uncertain outcome. Read runtime_status/runtime_request and reconcile before another mutation. See runtime-pending.json; no automatic retry.');
+  if(mutation)atomic(pending,{operation:op,input,binding:this.binding(),status:'dispatching'});
+  const r=await this.native.call(['runtime',op],p,{signal,timeout:Math.min(120000,(p.timeout_ms??60000)+30000)});
+  if(mutation){
+   if(['pending','starting','running'].includes(r.data.status)&&r.data.request_id)atomic(pending,{operation:op,session:r.data.session_id,request_id:r.data.request_id,status:r.data.status});
+   else fs.rmSync(pending,{force:true});
+  }
+  // Only a terminal response for the exact pending request can automatically clear uncertainty.
+  if(op==='request'&&fs.existsSync(pending)){
+   const prior=JSON.parse(fs.readFileSync(pending));
+   if(prior.session===p.session&&prior.request_id===p.id&&['completed','failed','cancelled'].includes(r.data.status))fs.rmSync(pending,{force:true});
+  }
+  return this.results.save(e.name,r,{...this.binding(),session:input.session??r.data.session_id??r.data.id});
+ }
  activeGroups(){
   const kind=this.config.toolRoute?.kind;
   const groups=new Set();
@@ -46,5 +76,5 @@ export class ToolAdapters {
   if(kind==='capture')groups.add('wireshark');
   return groups;
  }
- async available(signal){const c=await this.capabilities(signal);return this.registry.list().filter(e=>e.route.kind==='analysis'&&c.backends?.some(b=>b.name===e.route.backend&&b.available&&b.operations.includes(e.route.operation)));}
+ async available(signal){const c=await this.capabilities(signal);return this.registry.list().filter(e=>e.route.kind==='runtime'?(runtimeReads.has(e.route.operation)||this.config.authority==='host')&&(!['record','replay'].includes(e.route.operation)||process.platform!=='win32'):e.route.kind==='analysis'&&c.backends?.some(b=>b.name===e.route.backend&&b.available&&b.operations.includes(e.route.operation)));}
 }
