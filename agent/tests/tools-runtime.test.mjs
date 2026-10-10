@@ -12,10 +12,19 @@ test('every runtime contract operation has a typed route and native-compatible f
  const {app}=setup(t);for(const op of contracts['runtime-action'].properties.operation.enum){const entry=app.registry.get('runtime_'+op.replaceAll('-','_'));assert.equal(entry.route.operation,op);for(const field of Object.keys(entry.schema.properties))assert.ok(contracts['runtime-action'].properties[field],field);}
 });
 test('runtime binds the hashed active file; denies ungranted execution and override fields',async t=>{
- const {app,config,calls}=setup(t);await assert.rejects(app.execute('runtime_io_run',{input_hex:''}),/host authority/);assert.equal(calls.length,0);
+ const {app,config,calls,native}=setup(t);await assert.rejects(app.execute('runtime_io_run',{input_hex:''}),/host authority/);assert.equal(calls.length,0);
  config.authority='host';await app.execute('runtime_io_run',{input_hex:'4142',timeout_ms:1000});const p=calls[0].request;assert.equal(p.project,'test');assert.equal(p.trusted_target_ack,true);validate(contracts['runtime-action'],{...p,operation:'io-run'});
  await assert.rejects(app.execute('runtime_continue',{}),/missing session/);await assert.rejects(app.execute('runtime_io_run',{input_hex:'',file:'another'}),/unknown field/);
+ fs.writeFileSync(native.active.path,'altered');await assert.rejects(app.execute('runtime_io_run',{input_hex:''}),/file changed/);
 });
 test('uncertain runtime side effects are retained and not blindly repeated',async t=>{
  const {app,config,native,state}=setup(t);config.authority='host';native.call=async()=>{throw Error('transport timeout');};await assert.rejects(app.execute('runtime_continue',{session:'run_1'}),/timeout/);assert.ok(fs.existsSync(path.join(state,'runtime-pending.json')));await assert.rejects(app.execute('runtime_continue',{session:'run_1'}),/uncertain/);
+});
+test('advanced entry points enforce the same grants and reject worker/transport bypasses',async t=>{
+ const {app,calls}=setup(t);
+ await assert.rejects(app.advancedCommand(['runtime','launch'],{}),/host authority/);
+ await assert.rejects(app.advancedCommand(['__workbench','run'],{}),/No model adapter/);
+ await assert.rejects(app.advancedCommand(['runtime','status','--workspace','other'],{}),/transport flags/);
+ await assert.rejects(app.advancedAnalysis({backend:'ghidra',operation:'annotate'}),/operator grant/);
+ assert.equal(calls.length,0);
 });

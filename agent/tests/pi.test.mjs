@@ -37,7 +37,7 @@ test(
       requests.push(body);
       const steps = [
         ["read", { path: "source.txt" }],
-        ["analyze", { backend: "xair", operation: "inventory" }],
+        ["xair_inventory", {}],
         [
           "remember",
           {
@@ -112,13 +112,15 @@ test(
       assert.equal(r.timedOut, false);
       assert.deepEqual(calls, [
         "read",
-        "analyze",
+        "xair_inventory",
         "remember",
         "knowledge_search",
       ]);
       assert.equal(turn, 5);
       assert(JSON.stringify(requests[1].messages).includes("END_OF_SOURCE"));
-      assert(requests[0].tools.some((t) => t.function.name === "analyze"));
+      assert(requests[0].tools.some((t) => t.function.name === "xair_inventory"));
+      assert(!requests[0].tools.some((t) => t.function.name === "runtime_launch"));
+      assert(requests[0].tools.length<40,'The full registry must not be injected into every turn');
       assert(
         JSON.stringify(requests.at(-1).messages).includes(
           "Synthetic test finding",

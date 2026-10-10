@@ -55,13 +55,13 @@ export class ToolAdapters {
   if(e.route.kind==='workflow')return this.results.save(name,await this.workflows.execute(e,input,signal),this.binding());
   if(e.route.kind==='guest'){
    const p={...input};if(e.route.operation==='export')p.project=this.config.project;
-   return this.results.save(name,await this.native.call(['guest',e.route.operation],p,{signal}),this.binding());
+   return this.results.save(name,await this.native.call(['guest',e.route.operation],p,{signal}),{scope:'guest-profile-or-run',id:input.id??null});
   }
   if(e.route.kind==='cli'){
    const args=[e.route.family,...(e.route.operation?[e.route.operation]:[]),'--project',this.config.project];
    if(e.route.family==='functions')args.push('--artifact',this.native.active.artifact_sha256);
    for(const [k,v] of Object.entries(input))args.push('--'+k,String(v));
-   return this.results.save(name,await this.native.call(args,undefined,{signal}),this.binding());
+   return this.results.save(name,await this.native.call(args,undefined,{signal}),e.route.family==='functions'?this.binding():{project:this.config.project,scope:'explicit-project-identity',id:input.id??null});
   }
   if(e.route.kind==='workbench'){
    const {family,operation}=e.route;
@@ -70,7 +70,8 @@ export class ToolAdapters {
    if(['coverage','recognize','transform'].includes(family)||family==='graph'&&operation!=='event'||family==='knowledge'&&operation==='list')p.artifact=this.native.active.artifact_sha256;
    if(family==='knowledge'&&operation==='put')p.scope={artifact_sha256:this.native.active.artifact_sha256};
    const r=await this.native.call([family,operation],p,{signal});
-   return this.results.save(name,r,this.binding());
+   const artifactBound=['coverage','recognize','transform'].includes(family)||family==='graph'&&operation!=='event'||family==='knowledge'&&['put','list'].includes(operation);
+   return this.results.save(name,r,artifactBound?this.binding():{project:this.config.project,scope:'explicit-project-identity',id:input.id??input.subject??null});
   }
   if(e.route.kind==='analysis'){
    const b=catalog.backends?.find(b=>b.name===e.route.backend);

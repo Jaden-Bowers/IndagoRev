@@ -16,9 +16,17 @@ test('workbench coverage is complete and binds active artifact without transport
 test('workflow uses native external ownership and never places owner tokens in model-facing arguments',async t=>{
  const {app,calls}=setup(t);await app.execute('helper_run',{language:'python3',source_code:'print(1)',input:{generated_hex:''}});
  assert.deepEqual(calls.map(c=>c.args[1]),['create','show','propose','run']);const proposal=calls[2].request;assert.equal(proposal.owner_token,'SECRET');assert.equal(proposal.request.operation,'helper.run');assert.equal(proposal.request.arguments.input.generated_hex,'');
- const saved=fs.readFileSync(path.join(app.config.state,'workflow-owners',app.native.active.artifact_sha256+'.json'),'utf8');assert.ok(!saved.includes('SECRET'));
+ const owners=path.join(app.config.state,'workflow-owners'),saved=fs.readFileSync(path.join(owners,fs.readdirSync(owners)[0]),'utf8');assert.ok(!saved.includes('SECRET'));
  assert.equal(redactControlSecrets({nested:{owner_token:'SECRET'}}).nested.owner_token,'[redacted]');
  await assert.rejects(app.execute('experiment_run',{engine:'io',cases:[{label:'a',input_hex:''}],prediction:'observe'}),/Host authority/);
+});
+test('interrupted workflow retains action identity and blocks automatic replay',async t=>{
+ const {app,native,calls}=setup(t);const original=native.call;
+ native.call=async(args,p)=>{if(args[1]==='run')throw Error('transport interruption');return original(args,p);};
+ const input={language:'python3',source_code:'print(1)',input:{generated_hex:''}};
+ await assert.rejects(app.execute('helper_run',input),/interruption/);
+ await assert.rejects(app.execute('helper_run',input),/uncertain outcome/);
+ assert.equal(calls.filter(c=>c.args[1]==='propose').length,1);
 });
 test('real native workbench transforms and external-owner reads',{skip:!process.env.INDAGO_TEST_EXE,timeout:180000},async t=>{
  const {config}=setup(t);config.exe=process.env.INDAGO_TEST_EXE;const native=new Native(config);await native.call(['project','create','--name',config.project]);await native.import(path.join(config.state,'input'));config.active=native.active;
@@ -27,4 +35,8 @@ test('real native workbench transforms and external-owner reads',{skip:!process.
  const read=await app.execute('artifact_read',{offset:0,max_bytes:4});assert.equal(read.isError,false);assert.match(JSON.stringify(read),/41424344/);
  const helper=await app.execute('helper_capabilities',{});assert.equal(helper.isError,false);assert.match(JSON.stringify(helper),/isolation_probe_required/);
  const status=await app.execute('workflow_status',{});assert.equal(status.isError,false);
+ const calculation=await app.execute('calculation_evaluate',{source:{offset:0,max_bytes:4},iterations:4,emit:['xor',['byte','i'],1]});assert.match(JSON.stringify(calculation),/40434245/);
+ const reasoning=await app.execute('reasoning_read',{});assert.equal(reasoning.isError,false);
+ const tokens=[...app.workflows.owners.values()].map(o=>o.token);
+ for(const name of fs.readdirSync(native.dir)){const text=fs.readFileSync(path.join(native.dir,name),'utf8');for(const token of tokens)assert.ok(!text.includes(token),'owner token leaked into receipt');}
 });
