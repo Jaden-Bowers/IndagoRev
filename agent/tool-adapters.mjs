@@ -2,14 +2,32 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {hashFile,atomic} from './native.mjs';
 import {addRuntime,runtimeReads} from './tools-runtime.mjs';
+import {addWorkbench} from './tools-workbench.mjs';
+import {addWorkflows} from './tools-workflows.mjs';
+import {Workflows} from './tool-workflows.mjs';
 import {staticRegistry} from './tools-static.mjs';
 import {validate} from './tool-registry.mjs';
 import {ToolResults} from './tool-results.mjs';
 
 export class ToolAdapters {
- constructor(native,config){this.native=native;this.config=config;this.registry=addRuntime(staticRegistry());this.results=new ToolResults(config.state);this.catalog=config.toolCapabilities;}
+ constructor(native,config){this.native=native;this.config=config;this.registry=addWorkflows(addWorkbench(addRuntime(staticRegistry())));this.results=new ToolResults(config.state);this.catalog=config.toolCapabilities;this.workflows=new Workflows(native,config);}
  async capabilities(signal){return this.catalog??=(await this.native.capabilities(signal)).data;}
  binding(){return {target_id:this.native.active?.id,artifact_sha256:this.native.active?.artifact_sha256};}
+ async advancedAnalysis(p,signal){
+  if(p.target_id&&p.target_id!==this.native.active.id)throw Error('Use program_open before analyzing a different target');
+  if(p.backend==='ghidra'&&['annotate','analyze'].includes(p.operation)&&!this.config.allowAnnotations)throw Error('Annotation requires operator grant');
+  return this.results.save('analyze',await this.native.analyze(p,signal),this.binding());
+ }
+ async advancedCommand(args,request={},signal){
+  if(args.length!==2||args.some(a=>a.startsWith('-')))throw Error('Use a named tool or a two-word public family/operation; transport flags and internal workers are not model parameters');
+  const [family,operation]=args;
+  if(request.project&&request.project!==this.config.project)throw Error('Cross-project override denied');
+  const p={...request};delete p.project;
+  if(family==='runtime')return this.execute('runtime_'+operation.replaceAll('-','_'),p,signal);
+  const e=this.registry.list().find(e=>e.route.kind==='workbench'&&e.route.family===family&&e.route.operation===operation);
+  if(e)return this.execute(e.name,p,signal);
+  throw Error('No model adapter for this CLI operation. Use tools_search for supported calls. Operator/installation commands remain in the explicit host CLI, not an implicit controller bypass.');
+ }
  async address(value,signal){
   if(!['current','selection'].includes(value))return value;
   const refs=this.config.selection??[];
@@ -24,8 +42,19 @@ export class ToolAdapters {
  async execute(name,input,signal){
   const e=this.registry.get(name);validate(e.schema,input);signal?.throwIfAborted();
   if(e.effect==='annotation'&&!this.config.allowAnnotations)throw Error('Annotation requires an operator-granted session; model arguments cannot grant it');
+  if(e.effect==='administration'&&!this.config.allowAdministration)throw Error('Requires operator administration grant; not a model parameter');
   const catalog=await this.capabilities(signal);
   if(e.route.kind==='runtime')return this.runtime(e,input,signal);
+  if(e.route.kind==='workflow')return this.results.save(name,await this.workflows.execute(e,input,signal),this.binding());
+  if(e.route.kind==='workbench'){
+   const {family,operation}=e.route;
+   const p={...input};
+   if(!(family==='bundle'&&operation==='import')&&family!=='retention')p.project=this.config.project;
+   if(['coverage','recognize','transform'].includes(family)||family==='graph'&&operation!=='event'||family==='knowledge'&&operation==='list')p.artifact=this.native.active.artifact_sha256;
+   if(family==='knowledge'&&operation==='put')p.scope={artifact_sha256:this.native.active.artifact_sha256};
+   const r=await this.native.call([family,operation],p,{signal});
+   return this.results.save(name,r,this.binding());
+  }
   if(e.route.kind==='analysis'){
    const b=catalog.backends?.find(b=>b.name===e.route.backend);
    if(!b?.available||!b.operations.includes(e.route.operation))throw Error(`Unavailable ${e.route.backend}/${e.route.operation}; provision the matching native build/engine, not a shell fallback`);
@@ -76,5 +105,11 @@ export class ToolAdapters {
   if(kind==='capture')groups.add('wireshark');
   return groups;
  }
- async available(signal){const c=await this.capabilities(signal);return this.registry.list().filter(e=>e.route.kind==='runtime'?(runtimeReads.has(e.route.operation)||this.config.authority==='host')&&(!['record','replay'].includes(e.route.operation)||process.platform!=='win32'):e.route.kind==='analysis'&&c.backends?.some(b=>b.name===e.route.backend&&b.available&&b.operations.includes(e.route.operation)));}
+ async available(signal){const c=await this.capabilities(signal);return this.registry.list().filter(e=>{
+  if(e.effect==='administration'&&!this.config.allowAdministration||e.effect==='annotation'&&!this.config.allowAnnotations)return false;
+  if(e.route.kind==='workflow')return e.effect==='helper'?this.config.allowHelpers===true&&process.platform==='linux':e.effect==='execution'?this.config.authority==='host':e.effect==='guest'?(this.config.guestProfiles??[]).length>0&&process.platform==='linux':true;
+  if(e.route.kind==='workbench')return c.workbench?.families?.[e.route.family]?.includes(e.route.operation);
+  if(e.route.kind==='runtime')return (runtimeReads.has(e.route.operation)||this.config.authority==='host')&&(!['record','replay'].includes(e.route.operation)||process.platform!=='win32');
+  return e.route.kind==='analysis'&&c.backends?.some(b=>b.name===e.route.backend&&b.available&&b.operations.includes(e.route.operation));
+ });}
 }

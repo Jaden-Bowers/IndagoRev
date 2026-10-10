@@ -4,6 +4,11 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 export const hash = (data) =>
   crypto.createHash("sha256").update(data).digest("hex");
+export function redactControlSecrets(value){
+  if(Array.isArray(value))return value.map(redactControlSecrets);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,/^(owner_token|api_key|access_token|authorization)$/i.test(k)?'[redacted]':redactControlSecrets(v)]));
+  return value;
+}
 export function hashFile(file) {
   const digest = crypto.createHash("sha256"),
     fd = fs.openSync(file, "r"),
@@ -122,7 +127,7 @@ export class Native {
     atomic(receiptFile, {
       id,
       args,
-      request,
+      request: redactControlSecrets(request),
       status: "dispatching",
       created_at: new Date().toISOString(),
       interpretation:
@@ -148,7 +153,7 @@ export class Native {
               atomic(receiptFile, {
                 id,
                 args,
-                request,
+                request: redactControlSecrets(request),
                 job,
                 status: "dispatching",
               });
@@ -187,9 +192,9 @@ export class Native {
     const receipt = {
       id,
       args,
-      request,
+      request: redactControlSecrets(request),
       result: { ...result, stdout: undefined },
-      data,
+      data: redactControlSecrets(data),
       created_at: new Date().toISOString(),
     };
     atomic(receiptFile, receipt);

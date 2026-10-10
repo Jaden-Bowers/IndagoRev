@@ -24,6 +24,9 @@ export async function launch(options) {
     project: options.project ?? "investigation",
     mode: options.mode ?? "knowledge",
     authority: options.authority ?? "analysis",
+    allowHelpers: options.allowHelpers ?? true,
+    allowAnnotations: options.allowAnnotations ?? false,
+    allowAdministration: options.allowAdministration ?? false,
     model: options.model ?? "huihui-qwen3.8-27b-abliterated",
     provider,
     endpoint: options.endpoint ?? "http://127.0.0.1:1234/v1",
@@ -31,6 +34,7 @@ export async function launch(options) {
   };
   delete config.signal;
   delete config.onEvent;
+  for(const key of ['allowHelpers','allowAnnotations','allowAdministration'])if(typeof config[key]!=='boolean')throw Error(key+' must be boolean');
   if (
     !["plain", "tools", "knowledge"].includes(config.mode) ||
     !["analysis", "host"].includes(config.authority)
@@ -250,6 +254,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       options.maxGenerations = Number(options["max-generations"]);
     if (options["api-key-env"]) options.apiKeyEnv = options["api-key-env"];
     if (options.vision) options.vision = options.vision === "true";
+    for(const [flag,key] of [['allow-helpers','allowHelpers'],['allow-annotations','allowAnnotations'],['allow-administration','allowAdministration']])if(options[flag]!==undefined){if(!['true','false'].includes(options[flag]))throw Error(flag+' must be true or false');options[key]=options[flag]==='true';}
     const run = await launch(options);
     console.log(JSON.stringify(run));
     if (run.code !== 0 || run.timedOut || run.outputLimited)
