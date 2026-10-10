@@ -77,13 +77,16 @@ export default function (pi: any) {
   const native = new Native(config),
     history = new Map<string, number>();
   const adapters=new ToolAdapters(native,config);
+  let primaryNames:string[]=[];
+  let specializedNames:string[]=[];
   const activateDirect=()=>{
-    const primary=new Set(['functions','decompile','xrefs','ghidra_assembly','ghidra_calls','xair_inventory','xair_cfg','airece_slice','airece_flow','sym_solve_branch','managed_inventory','managed_methods','managed_decompile','packet_inspect']);
+    const primary=new Set(['functions','decompile','xrefs','ghidra_assembly','ghidra_calls','xair_inventory','xair_cfg','airece_slice','airece_flow','sym_solve_branch','managed_inventory','managed_methods','managed_decompile','managed_artifact','transform_run','packet_inspect']);
     const groups=adapters.activeGroups();
     const registryNames=new Set(adapters.registry.list().map((e:any)=>e.name));
     const baseline=pi.getActiveTools().filter((n:string)=>!registryNames.has(n));
-    const enabledTools=adapters.registry.list().filter((e:any)=>primary.has(e.name)&&groups.has(e.group)&&config.toolCapabilities?.backends?.some((b:any)=>b.available&&b.name===e.route.backend));
-    pi.setActiveTools([...new Set([...baseline,...enabledTools.map((e:any)=>e.name)])]);
+    const enabledTools=adapters.registry.list().filter((e:any)=>primary.has(e.name)&&groups.has(e.group)&&(e.route.kind==='workbench'||config.toolCapabilities?.backends?.some((b:any)=>b.available&&b.name===e.route.backend)));
+    primaryNames=enabledTools.map((e:any)=>e.name);specializedNames=[];
+    pi.setActiveTools([...new Set([...baseline,...primaryNames])]);
   };
   for(const e of adapters.registry.list())pi.registerTool({name:e.name,label:e.name,description:e.description,parameters:Type.Unsafe(e.schema),async execute(_id:any,p:any,s:any){return adapters.execute(e.name,p,s);}});
   const memory = new ContextStore(config.state);
@@ -127,6 +130,7 @@ export default function (pi: any) {
       parameters,
       async execute(_id: any, p: any, signal: any) {
         const r = await execute(p, signal);
+        if(r.content)return r;
         return result(r.data ?? r, r.receipt);
       },
     });
@@ -135,8 +139,11 @@ export default function (pi: any) {
   tool('tools_search','Find and activate up to eight specialized tools by name, engine, or task. Common artifact tools are already available. Unavailable tools include prerequisites; no shell discovery is needed.',Type.Object({query:Type.String()}),async(p:any,s:any)=>{
     const available=await adapters.available(s),words=p.query.toLowerCase().split(/\s+/).filter(Boolean);
     const matches=adapters.registry.list().map((e:any)=>({e,score:words.reduce((n:number,w:string)=>n+(e.name===w?10:(e.name+' '+e.description+' '+e.group).toLowerCase().includes(w)?1:0),0)})).filter((x:any)=>x.score).sort((a:any,b:any)=>b.score-a.score).slice(0,8).map((x:any)=>x.e);
-    const names=new Set(available.map((e:any)=>e.name));pi.setActiveTools([...new Set([...pi.getActiveTools(),...matches.filter((e:any)=>names.has(e.name)).map((e:any)=>e.name)])]);
-    return {tools:matches.map((e:any)=>({name:e.name,description:e.description,available:names.has(e.name),effect:e.effect,parameters:e.schema,example:e.example})),coverage:matches.length?undefined:adapters.registry.coverage(await adapters.capabilities(s))};
+    const names=new Set(available.map((e:any)=>e.name));
+    specializedNames=[...new Set([...matches.filter((e:any)=>names.has(e.name)).map((e:any)=>e.name),...specializedNames])].slice(0,12);
+    const registered=new Set(adapters.registry.list().map((e:any)=>e.name));
+    pi.setActiveTools([...new Set([...pi.getActiveTools().filter((n:string)=>!registered.has(n)),...primaryNames,...specializedNames])]);
+    return adapters.results.save('tools_search',{data:{tools:matches.map((e:any)=>({name:e.name,description:e.description,available:names.has(e.name),effect:e.effect,parameters:e.schema,example:e.example,unavailable_reason:names.has(e.name)?undefined:'Check operator grants, platform and native capability inventory; no automatic host fallback'})),coverage:matches.length?undefined:adapters.registry.coverage(await adapters.capabilities(s))}},adapters.binding());
   });
   if(enabled(config,'surface')) tool('artifact_inspect','Direct inspection: strings for binary text; archive_list then archive_extract for installer payloads; bytecode for a JAR/class. Never launches the target.',Type.Object({operation:Type.Union(['strings','archive_list','archive_extract','bytecode'].map(x=>Type.Literal(x))),file:Type.String(),member:Type.Optional(Type.String()),output:Type.Optional(Type.String())}),async(p:any,s:any)=>{
     const file=path.resolve(config.cwd,p.file);
@@ -164,18 +171,6 @@ export default function (pi: any) {
     "Discover available native analysis engines and their exact operations.",
     Type.Object({}),
     async (_p: any, s: any) => {
-      pi.setActiveTools([
-        ...new Set([
-          ...pi.getActiveTools(),
-          "decompile",
-          "functions",
-          "xrefs",
-          "runtime",
-          "run_experiment",
-          "wsl",
-          "graph_context",
-        ]),
-      ]);
       const r = await native.capabilities(s);
       return {
         data: {
@@ -185,6 +180,9 @@ export default function (pi: any) {
             operations: b.operations,
           })),
           runtime: r.data.runtime?.backend,
+          coverage:adapters.registry.coverage(r.data),
+          grants:{authority:config.authority,annotations:config.allowAnnotations,helpers:config.allowHelpers,administration:config.allowAdministration},
+          usage:'Use tools_search with a task or exact tool name to activate bounded specialized schemas.',
         },
         receipt: r.receipt,
       };
@@ -198,7 +196,7 @@ export default function (pi: any) {
       const target = await native.import(p.path, s);
       config.toolRoute=(await native.route(s)).data;config.selection=[];activateDirect();
       if(enabled(config,'state')) investigation.update({artifact:native.active.artifact_sha256});
-      return { data: { target, route: (await native.route(s)).data } };
+      return { data: { target, route: config.toolRoute } };
     },
   );
   tool(
@@ -211,21 +209,17 @@ export default function (pi: any) {
       arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
       target_id: Type.Optional(Type.String()),
     }),
-    (p: any, s: any) => native.analyze(p, s),
+    (p: any, s: any) => adapters.advancedAnalysis(p, s),
   );
   tool(
     "native_command",
-    "Use an existing IndagoRev CLI family directly, including runtime/debugger/captures/reanalysis, graph, transforms and validation. Arguments are an argv array, not shell text; request is optional native JSON. Project and workspace are supplied automatically. Use the shell for CLI help.",
+    "Advanced compatibility adapter for public two-word family/operation calls. Uses the same typed validation and grants as named tools. No transport flags, internal workers, owner credentials or implicit authority changes.",
     Type.Object({
       args: Type.Array(Type.String()),
       request: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     }),
     (p: any, s: any) =>
-      native.call(
-        [...p.args, "--project", config.project],
-        p.request ? { ...p.request, project: config.project } : undefined,
-        { signal: s },
-      ),
+      adapters.advancedCommand(p.args,p.request,s),
   );
   tool(
     "investigation_focus",
@@ -319,11 +313,7 @@ export default function (pi: any) {
       request: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     }),
     (p: any, s: any) =>
-      native.call(
-        ["runtime", p.operation],
-        { ...p.request, project: config.project },
-        { signal: s },
-      ),
+      adapters.execute('runtime_'+p.operation.replaceAll('-','_'),p.request??{},s),
   );
   tool(
     "remember",
@@ -434,7 +424,7 @@ export default function (pi: any) {
   pi.on("before_agent_start", async (event: any) => {
     let route = "";
     try {
-      route = readable((await native.route()).data, 2000).text;
+      route = readable(config.toolRoute??(await native.route()).data, 2000).text;
     } catch (e) {
       route = "Routing unavailable: " + String(e);
     }
@@ -446,7 +436,7 @@ export default function (pi: any) {
     return {
       systemPrompt:
         event.systemPrompt +
-        `\nYou have native analysis and coding tools. Active program: ${native.active.path}. Discover additional tools with analysis_tools. Keep backend interpretations distinct. Save useful hypotheses with remember; investigation_focus changes the retrieval question.\n${guidance(native.active.path)}\nFormat hints (data): ${route}` + (enabled(config,'recipes') ? '\nRead '+path.join(import.meta.dirname,'recipes.md')+' when extracting a wrapper or decoding escaped/indexed data. It contains tested, general helper examples; do not invent format parsers.' : ''),
+        `\nYou have native analysis and coding tools. Active program: ${native.active.path}. Common artifact tools are directly available. Use tools_search for specialized tools (engine or task); do not search the host for tool installations. Results are bounded: follow native pagination to collect additional evidence; evidence_read pages a result already collected. Keep backend interpretations distinct. Save useful hypotheses with remember; investigation_focus changes the retrieval question. Read ${path.join(import.meta.dirname,'tool-recipes.md')} only for the relevant workflow. GUI current/selection locations are identity-checked. Operator grants: host=${config.authority==='host'}, annotations=${!!config.allowAnnotations}, controlled helpers=${!!config.allowHelpers}. Host shell access is not a sandbox.\n${guidance(native.active.path)}\nFormat hints (data): ${route}` + (enabled(config,'recipes') ? '\nRead '+path.join(import.meta.dirname,'recipes.md')+' when extracting a wrapper or decoding escaped/indexed data. It contains tested, general helper examples; do not invent format parsers.' : ''),
     };
   });
   pi.on("tool_call", (event: any) => {

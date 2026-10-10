@@ -49,6 +49,12 @@ export class ToolRegistry {
    rows.push({family,operation,status:tools.length?'direct':'advanced-only',tools});
   }
   for(const operation of catalog.runtime?.operations??[]){const tools=this.list().filter(e=>e.route.kind==='runtime'&&e.route.operation===operation).map(e=>e.name);rows.push({family:'runtime',operation,status:tools.length?'direct':'advanced-only',tools});}
+  for(const [family,operations] of Object.entries(catalog.harness?.read_families??{}))for(const operation of operations){
+   const tools=this.list().filter(e=>e.route.kind==='workflow'&&e.route.family===family&&e.route.operation===operation).map(e=>e.name);
+   const delegated={knowledge:['show','list'],graph:['search','packet','neighborhood'],coverage:['report'],evidence:['show'],artifact:['route'],investigation:['tools']}[family]?.includes(operation);
+   rows.push({family:'harness.read/'+family,operation,status:tools.length?'direct':delegated?'shared-adapter':'advanced-only',tools,reason:delegated?'Existing project-bound adapter or preflight provides this surface':undefined});
+  }
+  for(const operation of catalog.harness?.operations??[])rows.push({family:'harness.controller',operation,status:['profile','explore','finish','transfer'].includes(operation)?'operator-only':'controller-managed',tools:[],reason:'External-owner lifecycle and proof/ownership grants are not arbitrary model arguments'});
   return rows;
  }
 }

@@ -13,6 +13,8 @@ export function staticRegistry(){
  add('ghidra_analyze','ghidra','analyze',{address:location,expected_revision:integer()},['expected_revision'],'Explicitly rerun static analysis, optionally at a new function seed. Requires operator annotation grant.','annotation');
  for(const [kind,fields,required] of [
   ['rename',{name:string('New function name',256)},['name']],
+  ['comment',{text:string('Function comment',4096)},['text']],
+  ['create_structure',{name:string('Structure name',256),size:integer(1,65536),fields:array(object({offset:integer(0,65535),type_path:string('Existing type path',1024),name:string('Field name',256)},['offset','type_path','name']),256)},['name','size','fields']],
   ['signature',{prototype:string('C function prototype',4096)},['prototype']],
   ['variable_type',{symbol_id:string('Recovered Ghidra symbol ID',128),type_path:string('Existing Ghidra type path',1024)},['symbol_id','type_path']],
  ]){const name=`ghidra_${kind}`;add(name,'ghidra','annotate',{address:location,expected_revision:integer(),...fields},['address','expected_revision',...required],'Persist a revision-checked Ghidra annotation. Requires operator annotation grant.','annotation');registry.entries.set(name,{...registry.get(name),annotation:kind});}

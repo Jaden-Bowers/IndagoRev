@@ -17,7 +17,7 @@ export class ToolResults {
   // Keep complete status/identity outside the bounded preview. Never truncate the JSON envelope.
   let preview=JSON.stringify(body);const truncated=preview.length>12000;
   if(truncated)preview=preview.slice(0,12000);
-  const envelope={...summary,preview:truncated?preview:body,preview_truncated:truncated,more:truncated?{tool:'evidence_read',result_id:full.id,offset:12000}:null};
+  const envelope={...summary,native_ids:{id:d.id,investigation:d.investigation,job_id:d.job_id,request_id:d.request_id,session_id:d.session_id},preview:truncated?preview:body,preview_truncated:truncated,more:truncated?{tool:'evidence_read',result_id:full.id,offset:12000}:null};
   return {content:[{type:'text',text:JSON.stringify(envelope)}],details:summary,isError:['failed','invalid_request','capability_blocked','unavailable','timeout','unsupported','cancelled','interrupted','transport_error'].includes(summary.status)};
  }
  read(id,offset=0,limit=8000){

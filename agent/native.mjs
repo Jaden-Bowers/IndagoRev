@@ -117,6 +117,7 @@ export class Native {
     this.dir = path.join(config.state, "receipts");
     fs.mkdirSync(this.dir, { recursive: true });
     this.active = config.active;
+    if(config.toolCapabilities)this.catalogue={data:config.toolCapabilities};
     this.evidence = new Set();
   }
   async call(args, request, { signal, timeout = 120000 } = {}) {
@@ -202,10 +203,11 @@ export class Native {
       throw new Error(
         `${result.failure}; outcome may be incomplete; receipt ${id}${job ? "; job " + job : ""}`,
       );
-    if (![0, 3, 130].includes(result.code))
-      throw new Error(
-        `${data.diagnostic ?? JSON.stringify(data)}; receipt ${id}`,
-      );
+    if (![0, 3, 130].includes(result.code)) {
+      const error=new Error(`${data.diagnostic ?? JSON.stringify(redactControlSecrets(data))}; receipt ${id}`);
+      error.nativeStatus=data.status;error.nativeData=redactControlSecrets(data);error.receipt=receiptFile;
+      throw error;
+    }
     return { data, receipt: path.join(this.dir, id + ".json") };
   }
   async import(file, signal) {

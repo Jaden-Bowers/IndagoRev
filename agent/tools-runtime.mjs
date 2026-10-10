@@ -15,13 +15,13 @@ export const runtimeFields={
  'continue':'session wait timeout_ms','pause':'session wait timeout_ms',
  'step':'session thread wait timeout_ms','step-over':'session thread wait timeout_ms','step-out':'session thread wait timeout_ms',
  'stack':'session thread limit','crash':'session','watchpoint':'session address size access condition one_shot',
- 'breakpoints':'session','breakpoint':'session address expression condition one_shot hardware',
+ 'breakpoints':'session','breakpoint':'session address static_address rva function module expression condition one_shot hardware',
  'remove-breakpoint':'session breakpoint_id','registers':'session thread','memory':'session address size',
  'capture':'session address size','resolve':'session address static_address rva artifact module',
  'trace':'session max_steps memory code_regions timeout_ms',
  'cancel':'session id','observations':'session kind offset limit','network':'session offset limit',
- 'solve-input':'session observation path terminal_index branch_index input_ranges byte_constraints max_steps timeout_ms',
- 'symbolic':'session observation mode sink path symbolic_registers symbolic_memory max_steps timeout_ms',
+ 'solve-input':'session observation',
+ 'symbolic':'session observation mode sink path symbolic_registers symbolic_memory input_ranges byte_constraints max_steps timeout_ms',
  'validate-witness':'session observation address path terminal_index branch_index',
  'detach':'session','terminate':'session','reanalyze':'session observation backend timeout_ms',
  'feedback':'session observation backend timeout_ms','lineage':'session artifact','identities':'session id kind offset limit',
@@ -52,7 +52,7 @@ export function addRuntime(registry){
   if(p.size)p.size={type:'integer',minimum:1,maximum:65536};
   if(p.session)p.session={...p.session,minLength:1,description:'Explicit session ID returned by a prior runtime call. Never infer the most recent session.'};
   const required=fields.includes('session')?['session']:[];
-  required.push(...({'io-run':['input_hex'],attach:['pid'],instrument:['backend'],memory:['address','size'],capture:['address','size'],'remove-breakpoint':['breakpoint_id'],'select-process':['pid'],'solve-input':['observation','input_ranges'],symbolic:['observation','mode'],request:['id'],reanalyze:['observation'],feedback:['observation'],lineage:['artifact']}[operation]??[]));
+  required.push(...({'io-run':['input_hex'],attach:['pid'],instrument:['backend'],memory:['address','size'],capture:['address','size'],'remove-breakpoint':['breakpoint_id'],'select-process':['pid'],'solve-input':['observation'],symbolic:['observation','mode'],request:['id'],reanalyze:['observation'],feedback:['observation'],lineage:['artifact']}[operation]??[]));
   registry.add({name:'runtime_'+operation.replaceAll('-','_'),group:'runtime',effect:runtimeReads.has(operation)?'read':'execution',description:help[operation]??`Existing runtime ${operation}; use returned session/observation identities. Results preserve native limitations.`,schema:object(p,required),route:{kind:'runtime',operation},example:Object.fromEntries(required.map(k=>[k,k==='session'?'run_RETURNED_ID':k==='input_hex'?'4142':k==='backend'?'frida':k==='mode'?'solve_branch':k==='pid'?1234:k==='size'?64:k==='input_ranges'?[]:'RETURNED_ID']))});
  }
  return registry;

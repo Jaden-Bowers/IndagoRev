@@ -8,6 +8,12 @@ import { enabled, resolveEnvironment, environmentPrompt } from './improvements.m
 const root = path.dirname(fileURLToPath(import.meta.url));
 export async function launch(options) {
   if(options.signal?.aborted) throw Error('Cancelled before launch');
+  if(options.toolProfile){
+    const profile=JSON.parse(fs.readFileSync(path.resolve(options.toolProfile),'utf8'));
+    const allowed=new Set(['allowHelpers','allowAnnotations','allowAdministration','workflowTargets','executionTargets','guestProfiles','runtimeObservationSessions']);
+    if(!profile||Array.isArray(profile)||typeof profile!=='object'||Object.keys(profile).some(k=>!allowed.has(k)))throw Error('Unknown tool-profile field; controller credentials and authority are not profile fields');
+    options={...profile,...options};
+  }
   const provider = options.provider ?? "lmstudio";
   const apiKeyEnv = options.apiKeyEnv;
   if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(provider))
@@ -253,6 +259,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (options["max-generations"])
       options.maxGenerations = Number(options["max-generations"]);
     if (options["api-key-env"]) options.apiKeyEnv = options["api-key-env"];
+    if(options['tool-profile'])options.toolProfile=options['tool-profile'];
     if (options.vision) options.vision = options.vision === "true";
     for(const [flag,key] of [['allow-helpers','allowHelpers'],['allow-annotations','allowAnnotations'],['allow-administration','allowAdministration']])if(options[flag]!==undefined){if(!['true','false'].includes(options[flag]))throw Error(flag+' must be true or false');options[key]=options[flag]==='true';}
     const run = await launch(options);

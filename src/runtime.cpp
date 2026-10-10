@@ -1008,7 +1008,7 @@ J runtime_capabilities() {
             "pause",     "step",       "breakpoint",   "remove-breakpoint",
             "registers", "memory",     "capture",      "resolve",
             "trace",     "cancel",     "observations", "symbolic",
-            "network",
+            "network", "solve-input",
             "payloads",
             "detach",    "terminate",  "request",      "reanalyze",
             "lineage",   "identities", "feedback", "recipes", "stack", "crash", "step-over", "step-out", "watchpoint", "breakpoints", "processes", "select-process", "validate-witness"}},
