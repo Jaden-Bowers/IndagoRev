@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from 'node:string_decoder';
 import { Native, atomic, stopTree } from "./native.mjs";
 import { enabled, resolveEnvironment, environmentPrompt } from './improvements.mjs';
+import { modelContext } from './model-context.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
 export async function launch(options) {
   if(options.signal?.aborted) throw Error('Cancelled before launch');
@@ -40,6 +41,7 @@ export async function launch(options) {
   };
   delete config.signal;
   delete config.onEvent;
+  Object.assign(config, await modelContext(config));
   for(const key of ['allowHelpers','allowAnnotations','allowAdministration'])if(typeof config[key]!=='boolean')throw Error(key+' must be boolean');
   if (
     !["plain", "tools", "knowledge"].includes(config.mode) ||
@@ -130,6 +132,7 @@ export async function launch(options) {
       ? { shellPath: shell }
       : {}),
     enableInstallTelemetry: false,
+    compaction: config.compaction,
   });
   const pi = path.join(
     root,
@@ -256,6 +259,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         "Usage: node agent/cli.mjs --exe INDAGO --cwd DIRECTORY --target FILE --state STATE [--mode plain|tools|knowledge] [--authority analysis|host] [--prompt TEXT] [--timeout MS]",
       );
     if (options.timeout) options.timeout = Number(options.timeout);
+    if(options['context-tokens']) options.contextTokens=Number(options['context-tokens']);
+    if(options['output-tokens']) options.outputTokens=Number(options['output-tokens']);
     if (options["max-generations"])
       options.maxGenerations = Number(options["max-generations"]);
     if (options["api-key-env"]) options.apiKeyEnv = options["api-key-env"];
