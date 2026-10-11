@@ -18,6 +18,11 @@ Node and pinned Pi packages. See [building](building.md).
 
 ## Implemented scope
 
+- [Typed Pi tool integration](harness-tool-integration.md): artifact-specific
+  direct tools, bounded specialized activation, native runtime/workbench/helper
+  workflow adapters, revision-bound GUI references and paged evidence. Existing
+  host/environment limitations remain; adapter coverage is not qualification.
+
 - Windows C++/Dear ImGui pair-reversing GUI: Ghidra code views, UTF-8 source
   editing, location-bound AI references, streamed Pi chat and provider/usage
   settings; persisted function rename, signatures and variable retyping. Binary

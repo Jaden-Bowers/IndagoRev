@@ -5,7 +5,7 @@ store. The previous native controller remains available for comparisons.
 
 The [context engineering revision](../docs/context-engineering.md) documents the
 current retrieval and recovery behavior. Use `investigation_focus` to change the
-current question; `analysis_tools` reveals additional tools, including bounded
+current question; `tools_search` activates specialized tools, including bounded
 `graph_context` neighborhood lookup. Request manifests and working state are
 saved inside each session directory. Enhanced modes reserve the last generation
 for synthesis and apply explicit shell deadlines. All modes have bounded recovery
@@ -80,24 +80,84 @@ tool support the other environments. WSL commands take Linux paths and an option
 distribution. Tools installed by a helper can change the shared host environment;
 use identical preinstalled dependencies or reset hosts for stricter comparisons.
 
-`--authority analysis` is the default: the prompt prohibits original-target
-execution while allowing generated helpers. `host` explicitly permits original
-target execution and exposes desktop capture. These are operating policies for a
-trusted coding session, not a host sandbox. Generic shells and `native_command`
-can access the host. Existing contained native helpers/guest profiles remain
-available through the CLI. Windows screenshots return an image only when
+`--authority analysis` is the default: named and generic runtime adapters reject
+original-target interaction while allowing controlled generated helpers. `host`
+explicitly permits original-target execution and exposes desktop capture. These
+are operating policies for a trusted coding session, not a host sandbox. Generic
+shells still access the host. `native_command` now shares named-tool validation
+and grants; internal workers, transport flags and ownership changes are rejected.
+Existing contained native helpers/guest profiles have named adapters. Windows screenshots return an image only when
 `--vision true` declares a compatible model; otherwise they return a saved path.
 The Qwen text profile does not establish vision support. Screenshot capture is
 Windows-only in this frontend.
 
-Direct tools: `program_open`, `analysis_tools`, `analyze`, `decompile`, `functions`,
-`xrefs`, `runtime`, `run_experiment`, `native_command`, `program_search`, `knowledge_search`,
-`remember`, and `wsl`. Addresses for decompile/xrefs are hexadecimal addresses
-returned by native analysis. Select another program with `program_open`.
-`native_command` accepts argv plus optional native JSON; this exposes existing
-less-common operations without another controller protocol. `run_experiment`
-provides named argument/stdin/file/environment cases through native runtime IO.
-Debugger, Frida, DynamoRIO, capture and reanalysis use `runtime` or the CLI.
+## Typed native tools
+
+The registry exposes Ghidra, AIRECE, XAIR/CFG/SYM, ILSpy, capa/FLOSS, LIEF,
+Wireshark, workbench/knowledge, debugger/instrumentation/replay, controlled helpers,
+experiments, research/proof workflows, and pre-provisioned QEMU guests.
+Common tools are directly active for the detected artifact kind. `tools_search`
+activates up to twelve specialized tools, without inserting the entire registry
+into the prompt. Read the relevant [tool field guide](tool-recipes.md) on demand.
+
+Representative calls:
+
+- `decompile`, `functions`, `xrefs`, `ghidra_assembly`, `xair_cfg`, `airece_flow`,
+  `sym_solve_branch`, `managed_decompile`, `recover_strings`, `packet_inspect`.
+- `runtime_launch`, `runtime_breakpoint`, `runtime_instrument`, `runtime_capture`,
+  `runtime_reanalyze`, `runtime_record`, `runtime_replay`.
+- `transform_run`, `artifact_read`, `helper_run`, `experiment_run`,
+  `algorithm_candidate`, `algorithm_compare`, `service_contract`, `guest_run`.
+- `function_views`, `native_evidence_read`, `knowledge_show`, `reasoning_read`,
+  `reason_verify_transformation`, `reason_solution`.
+
+Each named call has a strict input schema. Project/artifact transport fields are
+controller-owned. Runtime sessions are explicit. GUI `current`/`selection`
+addresses are checked against artifact hashes and Ghidra revisions. Renaming,
+comments, structures and retyping use revision-checked annotation calls.
+
+Complete results are retained under `tool-results`; bounded responses preserve
+native status, evidence identities and backend verdicts. `evidence_read` pages a
+previous result; backend pagination obtains additional analysis. Native receipt
+paths remain available for ordinary coding tools. Unknown and partial are not
+success/acceptance certifications.
+
+Operator settings: `--allow-annotations true`, `--allow-helpers true|false`
+(default true), and `--allow-administration true` (default false). Optional
+`--tool-profile FILE` accepts those camelCase settings plus `workflowTargets`,
+`executionTargets`, `guestProfiles`, and `runtimeObservationSessions`. IDs must
+already exist in the selected native workspace; native validators pin them.
+`executionTargets` uses `{target_id,file,artifact_sha256}` entries for explicitly
+admitted companions and still requires `--authority host`. Profile files cannot
+supply controller credentials or override authority. A different active target,
+path or scope/grant gets a distinct native investigation; existing owner envelopes
+are immutable.
+
+Controlled helpers require the Linux native isolation prerequisites; rr requires
+a supported Linux host. No automatic downgrade to unrestricted Windows execution
+occurs. Guest provisioning, benchmark grading, installing engines and switching
+to builtin-model inference remain operator-side. No new instruction semantics,
+debugger, emulator or proof oracle is introduced by these adapters.
+
+Interrupted runtime mutations retain `runtime-pending.json`. Reconcile explicit
+request/session IDs before another mutation. `workflow_status` and
+`experiment_reconcile` inspect controller-owned actions. Uncertain outcomes are
+not automatically replayed. Owner tokens stay in controller memory and are
+redacted from receipts; this does not make the unrestricted Pi shell a sandbox.
+
+Audit the configured native executable (no target execution or inference):
+
+```text
+node agent/tool-audit.mjs --exe PATH_TO_INDAGO --state NEW_AUDIT_DIRECTORY --output COVERAGE_JSON
+node agent/generate-tool-contracts.mjs --check
+```
+
+The audit distinguishes direct adapters, shared adapters, controller-managed and
+operator-only operations. Unclassified advertised operations fail the audit.
+Run `pnpm --dir agent test`; SDK tests are serialized to avoid competing startup
+and environment probes exhausting their short deadlines. Set `INDAGO_TEST_EXE`
+for native integration tests and `INDAGO_RUNTIME_FIXTURE` to the built synthetic
+I/O fixture for the bounded target-execution check. Neither is a malware test.
 
 Native responses preserve status/backend/evidence IDs. Large responses remain in
 receipts and receive readable previews. Model findings are native knowledge
