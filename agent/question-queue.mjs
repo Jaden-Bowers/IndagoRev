@@ -48,10 +48,13 @@ export class QuestionQueue {
  }
  next(maxAttempts=3){
   const d=this.read();
+  for(const q of d.questions)if(q.status==='answered'&&q.evidence.some(e=>{try{return hashFile(path.join(this.directory,e.path))!==e.sha256;}catch{return true;}})){
+   q.status='blocked';q.next_action='Cited evidence changed or disappeared; operator review required.';
+  }
   for(const q of d.questions)if(q.status==='active'){q.status='partial';q.next_action='Previous batch interrupted; inspect saved receipts before continuing.';}
   for(const q of d.questions)if(['pending','partial'].includes(q.status)&&q.attempts>=maxAttempts)q.status='blocked';
   const q=d.questions.find(q=>['pending','partial'].includes(q.status)&&q.dependencies.every(id=>d.questions.find(p=>p.id===id)?.status==='answered'));
   if(q){q.status='active';q.attempts++;}this.save(d);return q;
  }
- view(limit=32){const d=this.read();return {artifact:d.artifact,revision:d.revision,questions:d.questions.slice(0,limit),total:d.questions.length};}
+ view(limit=8,offset=0){const d=this.read();return {artifact:d.artifact,revision:d.revision,questions:d.questions.slice(offset,offset+limit),total:d.questions.length,next_offset:offset+limit<d.questions.length?offset+limit:null};}
 }

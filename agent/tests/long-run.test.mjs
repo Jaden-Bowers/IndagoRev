@@ -20,3 +20,12 @@ test('exclusive lock, missing provider and changed targets fail closed',async()=
  const r=await supervise(o,{resolveContext:async()=>{throw Error('offline');},launchBatch:async()=>assert.fail()});assert.match(r.reason,/provider_preflight/);
  fs.writeFileSync(path.join(o.cwd,'sample'),'changed');await assert.rejects(supervise(o,{resolveContext}),/identity/);
 });
+test('global token and batch budgets, stop file and interrupted acknowledgement',async()=>{
+ const o=fixture();o.maxBatches=1;let calls=0;
+ let r=await supervise(o,{resolveContext,launchBatch:async()=>{calls++;return {code:0};}});assert.equal(r.reason,'global_budget');assert.equal(calls,1);
+ const tokenCase=fixture();tokenCase.maxTokens=10;
+ r=await supervise(tokenCase,{resolveContext,launchBatch:async c=>{c.onEvent({type:'message_end',message:{role:'assistant',usage:{input:20,output:5}}});return {code:0};}});assert.equal(r.tokens,25);assert.equal(r.batches,1);
+ await assert.rejects(supervise(tokenCase,{resolveContext}),/needs review/);
+ const stopped=fixture();fs.mkdirSync(stopped.state);fs.writeFileSync(path.join(stopped.state,'STOP'),'');
+ r=await supervise(stopped,{resolveContext,launchBatch:async()=>assert.fail()});assert.equal(r.reason,'operator_stop_file');
+});

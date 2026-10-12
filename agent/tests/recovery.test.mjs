@@ -10,6 +10,7 @@ test('third unchanged failing helper is blocked and shell calls have a deadline'
   fs.writeFileSync(path.join(dir,'sample.txt'),'repeat fixture');
   const requests=[];
   const server=http.createServer(async(req,res)=>{
+    if(req.method==='GET'){res.end(JSON.stringify({data:[]}));return;}
     let raw='';for await(const b of req)raw+=b;
     const body=JSON.parse(raw);requests.push(body);
     const n=requests.length;

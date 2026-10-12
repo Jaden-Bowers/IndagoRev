@@ -31,6 +31,7 @@ test(
       requests = [];
     let turn = 0;
     const server = http.createServer(async (req, res) => {
+      if(req.method==='GET'){res.end(JSON.stringify({data:[]}));return;}
       let raw = "";
       for await (const b of req) raw += b;
       const body = JSON.parse(raw);
@@ -159,6 +160,7 @@ test(
     let requests = 0,
       tools = [];
     const server = http.createServer(async (req, res) => {
+      if(req.method==='GET'){res.end(JSON.stringify({data:[]}));return;}
       let raw = "";
       for await (const b of req) raw += b;
       const body = JSON.parse(raw);

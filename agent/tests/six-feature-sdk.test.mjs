@@ -16,6 +16,7 @@ test('Pi direct strings, compact state, successful stagnation and final repair',
     ['bash',{command:'echo constant'}],['bash',{command:'echo constant'}],['bash',{command:'echo constant'}],
   ];
   const server=http.createServer(async(req,res)=>{
+    if(req.method==='GET'){res.end(JSON.stringify({data:[]}));return;}
     let raw='';for await(const b of req)raw+=b;
     const body=JSON.parse(raw);requests.push(body);const n=requests.length,step=steps[n-1];
     const delta=step?{role:'assistant',tool_calls:[{index:0,id:'six'+n,type:'function',function:{name:step[0],arguments:JSON.stringify(step[1])}}]}:{role:'assistant',content:n===6?'<tool_call><function=bash>':'Candidate example; acceptance remains unresolved.'};
@@ -42,6 +43,7 @@ test('queued length recovery cannot exceed budget after final synthesis',{skip:!
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'indago-budget-'));fs.writeFileSync(path.join(dir,'sample.txt'),'synthetic');
   let count=0;
   const server=http.createServer(async(req,res)=>{
+    if(req.method==='GET'){res.end(JSON.stringify({data:[]}));return;}
     for await(const b of req){};const n=++count;
     const stop=n===1||n===3?'length':n===2?'tool_calls':'stop';
     const delta=stop==='tool_calls'?{role:'assistant',tool_calls:[{index:0,id:'budget',type:'function',function:{name:'read',arguments:JSON.stringify({path:'sample.txt'})}}]}:{role:'assistant',content:stop==='length'?'Partial':'Unresolved.'};
