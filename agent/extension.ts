@@ -8,12 +8,18 @@ import { guidance } from "./guidance.mjs";
 import {enabled, finalText, Investigation, Progress, extractMember} from './improvements.mjs';
 import {strings} from './helper.mjs';
 import {ToolAdapters} from './tool-adapters.mjs';
+import {QuestionQueue} from './question-queue.mjs';
+import {staticPolicy,staticToolAllowed} from './static-policy.mjs';
 
 export default function (pi: any) {
   const config = JSON.parse(
     fs.readFileSync(process.env.INDAGO_AGENT_CONFIG!, "utf8"),
   );
   let generations = 0;
+  const queue=config.queueDirectory?new QuestionQueue(config.queueDirectory):null;
+  const permitted=(name:string)=>!config.restrictedStatic||staticToolAllowed(name);
+  // Enforce on invocation as well as hiding tools; discovery cannot restore authority.
+  pi.on('tool_call',(event:any)=>{try{staticPolicy(config,event.toolName,event.input);}catch(e){return {block:true,reason:String(e)};}});
   const investigation=new Investigation(path.join(config.state,'investigation.json'),config.active.artifact_sha256);
   const progress=new Progress();
   let requestNumber = 0,
@@ -86,7 +92,7 @@ export default function (pi: any) {
     const baseline=pi.getActiveTools().filter((n:string)=>!registryNames.has(n));
     const enabledTools=adapters.registry.list().filter((e:any)=>primary.has(e.name)&&groups.has(e.group)&&(e.route.kind==='workbench'||config.toolCapabilities?.backends?.some((b:any)=>b.available&&b.name===e.route.backend)));
     primaryNames=enabledTools.map((e:any)=>e.name);specializedNames=[];
-    pi.setActiveTools([...new Set([...baseline,...primaryNames])]);
+    pi.setActiveTools([...new Set([...baseline,...primaryNames])].filter(permitted));
   };
   for(const e of adapters.registry.list())pi.registerTool({name:e.name,label:e.name,description:e.description,parameters:Type.Unsafe(e.schema),async execute(_id:any,p:any,s:any){return adapters.execute(e.name,p,s);}});
   const memory = new ContextStore(config.state);
@@ -135,14 +141,19 @@ export default function (pi: any) {
       },
     });
   if(enabled(config,'state')) tool('investigation_update','Update the concise working state after a meaningful discovery. Facts must cite a file, offset or receipt. Candidate is not automatically verified.',Type.Object({facts:Type.Optional(Type.Array(Type.String())),candidate:Type.Optional(Type.String()),obligation:Type.Optional(Type.String())}),async(p:any)=>{investigation.update(p);return investigation.data;});
+  if(queue){
+    tool('question_list','Read the persistent question backlog. Answered means model-supported, not independently verified.',Type.Object({}),async()=>queue.view(128));
+    tool('question_add','Decompose the current question into up to twelve bounded child questions. Dependencies reference existing question IDs. This ends work on the parent; do not checkpoint it afterward.',Type.Object({questions:Type.Array(Type.Object({question:Type.String({maxLength:4000}),dependencies:Type.Optional(Type.Array(Type.String()))}),{minItems:1,maxItems:12})}),async(p:any)=>{queue.add(p.questions,config.questionId);return queue.view();});
+    tool('question_checkpoint','Persist current findings before finishing. Evidence paths must name native receipts or tool-results inside this investigation. Answered is a model assessment, never verified correctness.',Type.Object({status:Type.Union(['partial','answered','blocked'].map(x=>Type.Literal(x))),summary:Type.String({maxLength:6000}),evidence:Type.Optional(Type.Array(Type.String(),{maxItems:12})),failed_approaches:Type.Optional(Type.Array(Type.String(),{maxItems:12})),next_action:Type.Optional(Type.String({maxLength:2000}))}),async(p:any)=>{queue.checkpoint(config.questionId,p);return queue.view();});
+  }
   tool('evidence_read','Read another bounded page of a returned tool result. Use result_id and next_offset, not host path discovery.',Type.Object({result_id:Type.String(),offset:Type.Optional(Type.Integer({minimum:0})),limit:Type.Optional(Type.Integer({minimum:1,maximum:16000}))}),async(p:any)=>adapters.results.read(p.result_id,p.offset??0,p.limit??8000));
   tool('tools_search','Find and activate up to eight specialized tools by name, engine, or task. Common artifact tools are already available. Unavailable tools include prerequisites; no shell discovery is needed.',Type.Object({query:Type.String()}),async(p:any,s:any)=>{
     const available=await adapters.available(s),words=p.query.toLowerCase().split(/\s+/).filter(Boolean);
-    const matches=adapters.registry.list().map((e:any)=>({e,score:words.reduce((n:number,w:string)=>n+(e.name===w?10:(e.name+' '+e.description+' '+e.group).toLowerCase().includes(w)?1:0),0)})).filter((x:any)=>x.score).sort((a:any,b:any)=>b.score-a.score).slice(0,8).map((x:any)=>x.e);
+    const matches=adapters.registry.list().filter((e:any)=>permitted(e.name)).map((e:any)=>({e,score:words.reduce((n:number,w:string)=>n+(e.name===w?10:(e.name+' '+e.description+' '+e.group).toLowerCase().includes(w)?1:0),0)})).filter((x:any)=>x.score).sort((a:any,b:any)=>b.score-a.score).slice(0,8).map((x:any)=>x.e);
     const names=new Set(available.map((e:any)=>e.name));
     specializedNames=[...new Set([...matches.filter((e:any)=>names.has(e.name)).map((e:any)=>e.name),...specializedNames])].slice(0,12);
     const registered=new Set(adapters.registry.list().map((e:any)=>e.name));
-    pi.setActiveTools([...new Set([...pi.getActiveTools().filter((n:string)=>!registered.has(n)),...primaryNames,...specializedNames])]);
+    pi.setActiveTools([...new Set([...pi.getActiveTools().filter((n:string)=>!registered.has(n)),...primaryNames,...specializedNames])].filter(permitted));
     return adapters.results.save('tools_search',{data:{tools:matches.map((e:any)=>({name:e.name,description:e.description,available:names.has(e.name),effect:e.effect,parameters:e.schema,example:e.example,unavailable_reason:names.has(e.name)?undefined:'Check operator grants, platform and native capability inventory; no automatic host fallback'})),coverage:matches.length?undefined:adapters.registry.coverage(await adapters.capabilities(s))}},adapters.binding());
   });
   if(enabled(config,'surface')) tool('artifact_inspect','Direct inspection: strings for binary text; archive_list then archive_extract for installer payloads; bytecode for a JAR/class. Never launches the target.',Type.Object({operation:Type.Union(['strings','archive_list','archive_extract','bytecode'].map(x=>Type.Literal(x))),file:Type.String(),member:Type.Optional(Type.String()),output:Type.Optional(Type.String())}),async(p:any,s:any)=>{
