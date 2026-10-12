@@ -62,7 +62,7 @@ export async function launch(options) {
       config.maxGenerations > 128)
   )
     throw Error("Generation limit must be 1..128");
-  config.workspace = path.join(config.state, "native");
+  config.workspace = config.sharedWorkspace ?? path.join(config.state, "native");
   fs.mkdirSync(config.state, { recursive: true });
   const configFile = path.join(config.state, "config.json");
   const native = new Native(config);
@@ -76,7 +76,7 @@ export async function launch(options) {
       throw Error("Existing state belongs to another setup");
     config.active = old.active;
     native.active = old.active;
-  } else {
+  } else if (!config.active) {
     await native.call(["project", "create", "--name", config.project]);
     for (const file of options.inputs ?? [])
       if (
