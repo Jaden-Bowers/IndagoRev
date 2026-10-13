@@ -19,3 +19,5 @@ endfunction()
 add_sniper_fixture(network)
 
 add_sniper_fixture(credentials)
+
+add_sniper_fixture(paths)
