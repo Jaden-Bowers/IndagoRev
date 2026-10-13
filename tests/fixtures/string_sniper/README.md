@@ -23,3 +23,4 @@ ordinary string can qualify because it has a native reference.
 | --- | --- |
 | `indago_sniper_network` | HTTP/HTTPS, uppercase URL matching, reserved IPv4 text, and an ordinary reference-only string. |
 | `indago_sniper_credentials` | Credential keywords in multiple spellings and cases, with mixed-alphanumeric and ordinary controls. |
+| `indago_sniper_paths` | Drive, UNC, Unix, registry, and relative paths, plus cmd.exe, PowerShell, sh, bash, and System32 markers. |
