@@ -26,3 +26,4 @@ inspection; no automated checks execute as part of building.
 | Target | Code lines | Inspection purpose |
 | --- | --- | --- |
 | `indago_sniper_network` | 105 | HTTP/HTTPS variants, reserved IPv4 text, token boundaries, and controls including unsupported schemes and malformed addresses. |
+| `indago_sniper_credentials` | 119 | Credential spellings across lowercase, uppercase, embedded words, URLs, quoted fields, and controls. |
