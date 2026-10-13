@@ -76,6 +76,8 @@ Read the code in this order:
    The .mm extension allows Apple's Objective-C APIs alongside C++.
 6. CMakeLists.txt: selects the sources and frameworks needed to build the app.
 7. tests/mock_workbench_tests.cpp: model checks without a graphics window.
+8. tests/gui_interaction_tests.cpp: actual ImGui panel and input tests, with a
+   small commented driver that advances frames and locates controls by label.
 
 vendor/imgui/backends contains unchanged official Dear ImGui platform code.
 You do not need to edit those files to change the GUI layout.
@@ -85,8 +87,29 @@ Terminal alternative (run from the project root):
   cmake --build out/gui-macos --parallel 4
   open out/gui-macos/IndagoRev.app
 
-Run the model checks:
+Run all GUI and model checks:
   ctest --test-dir out/gui-macos --output-on-failure
+
+The GUI test executable draws the real panels into ImGui's drawing commands and
+sends mouse/keyboard events, without opening a native window. No external test
+framework, analysis tools, downloaded dependencies or AI provider are needed.
+Each named case runs in a fresh process, keeping its state independent:
+  gui-layouts: geometry, view switching, divider drag, resize, retained state
+  gui-navigation: function filtering, address lookup, line/range/assembly clicks
+  gui-notes: Unicode input, unsaved guards, save/discard across both views
+  gui-chat: send, streaming, selection capture, citations, cancellation
+  gui-console: typing, completion, history, navigation, analysis, errors, clear
+  gui-annotations: invalid edits, applying a rename, revision changes, cancel
+  gui-settings: themes, partial analysis, cancellation, provider failure/retry
+  mock-workbench: underlying actions, stale citations, validation, bounded logs
+
+To run just one case, use (for example):
+  ctest --test-dir out/gui-macos -R '^gui-layouts$' --output-on-failure
+
+The checks stay active in Release builds too. These tests verify the shared C++
+GUI behavior and generated layout; they do not verify GPU pixels, OS clipboard
+integration, native quit dialogs, or Windows-specific input/rendering backends.
+Those still require opening the application on the relevant operating system.
 
 Windows mock mode (Visual Studio C++ desktop tools, Windows SDK, and CMake):
   cmake -S gui -B out/gui-windows -A x64

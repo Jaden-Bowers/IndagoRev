@@ -52,4 +52,15 @@ if(BUILD_TESTING)
   add_executable(mock-workbench-tests tests/mock_workbench_tests.cpp mock_workbench.cpp)
   target_include_directories(mock-workbench-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   add_test(NAME mock-workbench COMMAND mock-workbench-tests)
+
+  # Exercise actual panels and input without a native window. workbench.cpp is
+  # included by the test driver, so it must not also be added as a source here.
+  add_executable(gui-interaction-tests tests/gui_interaction_tests.cpp
+    mock_workbench.cpp ${IMGUI_CORE} ${IMGUI}/misc/cpp/imgui_stdlib.cpp)
+  target_include_directories(gui-interaction-tests PRIVATE ${IMGUI} ${IMGUI}/misc/cpp)
+  target_compile_definitions(gui-interaction-tests PRIVATE IMGUI_ENABLE_TEST_ENGINE)
+  foreach(test_case layouts navigation notes chat console annotations settings)
+    add_test(NAME gui-${test_case} COMMAND gui-interaction-tests ${test_case})
+    set_tests_properties(gui-${test_case} PROPERTIES TIMEOUT 30)
+  endforeach()
 endif()
