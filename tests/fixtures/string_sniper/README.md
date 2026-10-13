@@ -28,3 +28,4 @@ inspection; no automated checks execute as part of building.
 | `indago_sniper_network` | 105 | HTTP/HTTPS variants, reserved IPv4 text, token boundaries, and controls including unsupported schemes and malformed addresses. |
 | `indago_sniper_credentials` | 119 | Credential spellings across lowercase, uppercase, embedded words, URLs, quoted fields, and controls. |
 | `indago_sniper_paths` | 105 | Forty Windows, Unix, registry, relative-path, and execution markers, including overlapping credential indicators. |
+| `indago_sniper_ranking` | 116 | Twenty-four low-score strings, twelve medium-score URLs, and twelve high-score combined indicators; linker address ordering may vary. |
