@@ -1,0 +1,28 @@
+# String sniper fixture binaries
+
+Standalone C99 inputs for Ghidra `string_sniper` inspection. Building this project
+only compiles and links executables; it registers no tests. Each executable's
+entry point references its fixture strings through `puts`. No fixture performs
+network requests, opens fixture paths, or executes embedded commands.
+
+Build from the repository root (Windows builds produce PE; Linux builds produce ELF):
+
+```sh
+cmake -S tests/fixtures/string_sniper -B out/string-sniper-fixtures
+cmake --build out/string-sniper-fixtures --config Debug
+```
+
+Generated binaries stay in the ignored `out/` directory. Import a binary into a
+Ghidra-backed Indago project with standard analysis before querying its strings.
+Ghidra string discovery, reference recovery, and address ordering depend on the
+compiler and analysis profile; these are inspection inputs, not golden results.
+Scores are additive heuristic leads. The default minimum score is 1, and even an
+ordinary string can qualify because it has a native reference.
+
+Each C source contains at least 70 nonblank code lines, excluding comments.
+The fixtures contain distinct strings and direct native references for manual
+inspection; no automated checks execute as part of building.
+
+| Target | Code lines | Inspection purpose |
+| --- | --- | --- |
+| `indago_sniper_network` | 105 | HTTP/HTTPS variants, reserved IPv4 text, token boundaries, and controls including unsupported schemes and malformed addresses. |
