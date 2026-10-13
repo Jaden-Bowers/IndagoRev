@@ -16,6 +16,7 @@ export default function (pi: any) {
     fs.readFileSync(process.env.INDAGO_AGENT_CONFIG!, "utf8"),
   );
   let generations = 0;
+  let batchCheckpointed=false;
   const queue=config.queueDirectory?new QuestionQueue(config.queueDirectory):null;
   const permitted=(name:string)=>!config.restrictedStatic||staticToolAllowed(name,config);
   // Enforce on invocation as well as hiding tools; discovery cannot restore authority.
@@ -58,7 +59,12 @@ export default function (pi: any) {
     return payload;
   });
   pi.on("turn_end", async (event: any, ctx: any) => {
+    if(batchCheckpointed&&event.message?.stopReason==='error')return;
     generations++;
+    if(batchCheckpointed){
+      atomic(path.join(config.state,'batch-checkpoint.json'),{question:config.questionId,queue_revision:queue.read().revision,generations,kind:'controller_checkpoint',independently_verified:false});
+      ctx.abort();if(config.prompt)ctx.shutdown();return;
+    }
     const answer=(event.message?.content??[]).filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n');
     if(enabled(config,'final') && event.message?.stopReason==='stop' && !finalText(answer)) {
       atomic(path.join(config.state,'unresolved.json'),{reason:'invalid_final_tool_markup',candidate:investigation.data.candidate,obligation:investigation.data.obligation,generations});
@@ -151,8 +157,8 @@ export default function (pi: any) {
   if(enabled(config,'state')) tool('investigation_update','Update the concise working state after a meaningful discovery. Facts must cite a file, offset or receipt. Candidate is not automatically verified.',Type.Object({facts:Type.Optional(Type.Array(Type.String())),candidate:Type.Optional(Type.String()),obligation:Type.Optional(Type.String())}),async(p:any)=>{investigation.update(p);return investigation.data;});
   if(queue){
     tool('question_list','Read a page of the persistent question backlog. Answered means model-supported, not independently verified.',Type.Object({offset:Type.Optional(Type.Integer({minimum:0,maximum:127})),limit:Type.Optional(Type.Integer({minimum:1,maximum:8}))}),async(p:any)=>queue.view(p.limit??4,p.offset??0));
-    tool('question_add','Decompose the current question into up to twelve bounded child questions. Dependencies reference existing question IDs. This ends work on the parent; do not checkpoint it afterward.',Type.Object({questions:Type.Array(Type.Object({question:Type.String({maxLength:4000}),dependencies:Type.Optional(Type.Array(Type.String()))}),{minItems:1,maxItems:12})}),async(p:any)=>{queue.add(p.questions,config.questionId);return queue.view();});
-    tool('question_checkpoint','Persist current findings before finishing. Evidence paths must name native receipts or tool-results inside this investigation. Answered is a model assessment, never verified correctness.',Type.Object({status:Type.Union(['partial','answered','blocked'].map(x=>Type.Literal(x))),summary:Type.String({maxLength:6000}),evidence:Type.Optional(Type.Array(Type.String(),{maxItems:12})),failed_approaches:Type.Optional(Type.Array(Type.String(),{maxItems:12})),next_action:Type.Optional(Type.String({maxLength:2000}))}),async(p:any)=>{queue.checkpoint(config.questionId,p);return queue.view();});
+    tool('question_add','Decompose the current question into up to twelve bounded child questions. Dependencies reference existing question IDs. The controller ends this batch after saving; no final prose or parent checkpoint is needed.',Type.Object({questions:Type.Array(Type.Object({question:Type.String({maxLength:4000}),dependencies:Type.Optional(Type.Array(Type.String()))}),{minItems:1,maxItems:12})}),async(p:any)=>{queue.add(p.questions,config.questionId);batchCheckpointed=true;return queue.view();});
+    tool('question_checkpoint','Persist current findings and end this batch. Evidence paths must name native receipts or tool-results inside this investigation. Answered is a model assessment, never verified correctness.',Type.Object({status:Type.Union(['partial','answered','blocked'].map(x=>Type.Literal(x))),summary:Type.String({maxLength:6000}),evidence:Type.Optional(Type.Array(Type.String(),{maxItems:12})),failed_approaches:Type.Optional(Type.Array(Type.String(),{maxItems:12})),next_action:Type.Optional(Type.String({maxLength:2000}))}),async(p:any)=>{queue.checkpoint(config.questionId,p);batchCheckpointed=true;return queue.view();});
   }
   tool('evidence_read','Read another bounded page of a returned tool result. Use result_id and next_offset, not host path discovery.',Type.Object({result_id:Type.String(),offset:Type.Optional(Type.Integer({minimum:0})),limit:Type.Optional(Type.Integer({minimum:1,maximum:16000}))}),async(p:any)=>adapters.results.read(p.result_id,p.offset??0,p.limit??8000));
   tool('tools_search','Find and activate up to eight specialized tools by name, engine, or task. Common artifact tools are already available. Unavailable tools include prerequisites; no shell discovery is needed.',Type.Object({query:Type.String()}),async(p:any,s:any)=>{

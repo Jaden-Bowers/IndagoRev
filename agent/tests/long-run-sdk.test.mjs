@@ -11,12 +11,12 @@ test('real Pi SDK decomposes and checkpoints while shell calls are denied',{skip
   assert(!body.tools?.some(t=>t.function.name==='bash'));
   let call;
   if(n===1)call=['question_add',{questions:[{question:'Identify this fixture from its import evidence'}]}];
-  if(n===3)call=['bash',{command:'echo forbidden'}];
-  if(n===4){const receipts=path.join(root,'batches','0001','receipts');const evidence=fs.readdirSync(receipts).filter(f=>f.endsWith('.json')&&!f.endsWith('.request.json')).map(f=>path.join(receipts,f))[0];call=['question_checkpoint',{status:'answered',summary:'Import receipt identifies the fixture; no execution or behavioral claim.',evidence:[evidence]}];}
+  if(n===2)call=['bash',{command:'echo forbidden'}];
+  if(n===3){const receipts=path.join(root,'batches','0001','receipts');const evidence=fs.readdirSync(receipts).filter(f=>f.endsWith('.json')&&!f.endsWith('.request.json')).map(f=>path.join(receipts,f))[0];call=['question_checkpoint',{status:'answered',summary:'Import receipt identifies the fixture; no execution or behavioral claim.',evidence:[evidence]}];}
   const delta=call?{role:'assistant',tool_calls:[{index:0,id:'call'+n,type:'function',function:{name:call[0],arguments:JSON.stringify(call[1])}}]}:{role:'assistant',content:'Batch checkpoint saved; evidence is limited to static import.'};
   res.writeHead(200,{'Content-Type':'text/event-stream'});res.end('data: '+JSON.stringify({id:'test'+n,choices:[{index:0,delta,finish_reason:call?'tool_calls':'stop'}],usage:{prompt_tokens:100,completion_tokens:30,total_tokens:130}})+'\n\ndata: [DONE]\n\n');
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
- try{const result=await supervise({exe:process.env.INDAGO_TEST_EXE,cwd:dir,target:'target.txt',brief:path.join(dir,'brief.txt'),state:root,model:'mock',endpoint:`http://127.0.0.1:${server.address().port}/v1`,maxBatches:3,batchMs:30000});assert.equal(result.status,'completed');assert.equal(result.counts.answered,1);assert(denied);assert.equal(n,5);}
+ try{const result=await supervise({exe:process.env.INDAGO_TEST_EXE,cwd:dir,target:'target.txt',brief:path.join(dir,'brief.txt'),state:root,model:'mock',endpoint:`http://127.0.0.1:${server.address().port}/v1`,maxBatches:3,batchMs:30000});assert.equal(result.status,'completed');assert.equal(result.counts.answered,1);assert(denied);assert.equal(n,3);}
  finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 });

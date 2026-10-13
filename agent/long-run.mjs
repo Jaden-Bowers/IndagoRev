@@ -5,7 +5,7 @@ import {atomic,hash,hashFile} from './native.mjs';
 import {launch} from './cli.mjs';
 import {QuestionQueue} from './question-queue.mjs';
 import {modelContext} from './model-context.mjs';
-const frontendIdentity=()=>hash(fs.readdirSync(import.meta.dirname).filter(f=>/\.(mjs|ts)$/.test(f)).sort().map(f=>f+':'+hashFile(path.join(import.meta.dirname,f))).join('\n'));
+const frontendIdentity=()=>hash(fs.readdirSync(import.meta.dirname).filter(f=>/\.(mjs|ts)$/.test(f)||['package.json','pnpm-lock.yaml'].includes(f)).sort().map(f=>f+':'+hashFile(path.join(import.meta.dirname,f))).join('\n'));
 
 export function directoryBytes(directory){
  let bytes=0;for(const e of fs.readdirSync(directory,{withFileTypes:true})){const p=path.join(directory,e.name);if(e.isSymbolicLink())throw Error('Investigation contains a symbolic link');if(e.isDirectory())bytes+=directoryBytes(p);else bytes+=fs.statSync(p).size;}return bytes;
@@ -60,12 +60,14 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
    if(directoryBytes(root)>=limits.maxBytes){stop('storage_budget');break;}
    const space=fs.statfsSync(root);if(space.bavail*space.bsize<1024**3){stop('free_space_floor');break;}
    if(hashFile(target)!==identity.artifact){stop('target_changed');break;}
+   if(frontendIdentity()!==identity.frontend_sha256||hashFile(options.exe)!==identity.exe_sha256){stop('analysis_implementation_changed');break;}
    let context;try{context=await resolveContext({...options,provider:'lmstudio',requireLoadedContext:true,requireSingleLoadedModel:true});}catch(e){stop('provider_preflight: '+e.message);break;}
    const question=queue.next();
    if(!question){run.status=queue.read().questions.some(q=>['blocked','pending','partial'].includes(q.status))?'blocked':'completed';run.reason=run.status==='completed'?'queue_exhausted_model_assessments':'no_ready_questions';persist();break;}
    const batch={id:run.batches.length+1,question:question.id,status:'running',started:new Date().toISOString(),tokens:0};
    const state=path.join(root,'batches',String(batch.id).padStart(4,'0'));batch.state=path.relative(root,state);
    run.batches.push(batch);run.status='running';delete run.reason;persist();
+   options.onProgress?.({event:'batch_started',batch:batch.id,question:question.id,context_tokens:context.contextTokens});
    const controller=new AbortController();const abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});
    const deadline=setTimeout(abort,limits.batchMs);
    const monitor=setInterval(()=>{try{const free=fs.statfsSync(root);if(fs.existsSync(path.join(root,'STOP'))||directoryBytes(root)>limits.maxBytes||free.bavail*free.bsize<1024**3||run.tokens>=limits.maxTokens||baselineElapsed+Date.now()-started>=limits.hours*3600000)controller.abort();}catch{controller.abort();}},2000);
@@ -73,7 +75,7 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
    try{
     const result=await launchBatch({...options,...context,state,active:run.active,sharedWorkspace:path.join(root,'native'),project:'long-investigation',mode:'knowledge',authority:'analysis',restrictedStatic:true,allowHelpers:options.containedHelpers===true,allowAnnotations:false,allowAdministration:false,queueDirectory:root,questionId:question.id,requireLoadedContext:true,prompt:questionPrompt(queue,question),timeout:Math.min(limits.batchMs,Math.max(100,limits.hours*3600000-run.elapsed_ms)),maxGenerations:limits.maxGenerations,signal:controller.signal,onEvent:event=>{
      if(event.type==='message_end'&&event.message?.role==='assistant'){
-      if(event.message.stopReason==='error')batch.provider_error=true;
+      if(event.message.stopReason==='error'&&!(event.message.errorMessage==='This operation was aborted'&&fs.existsSync(path.join(state,'batch-checkpoint.json'))))batch.provider_error=true;
       const u=event.message.usage??{};const tokens=(u.input??0)+(u.output??0)+(u.cacheRead??0)+(u.cacheWrite??0);batch.tokens+=tokens;run.tokens+=tokens;
       persist();
       if(run.tokens>=limits.maxTokens)controller.abort();
@@ -86,6 +88,7 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
    const after=progressDigest(queue);
    run.stagnant=before===after?(run.stagnant??0)+1:0;
    run.status='paused';persist();
+   options.onProgress?.({event:'batch_finished',batch:batch.id,status:batch.status,tokens:batch.tokens,elapsed_ms:run.elapsed_ms});
    if(batch.status!=='finished'){run.needsReview=true;stop('batch_interrupted_review_receipts_before_resume');break;}
    if(run.stagnant>=2){stop('no_checkpoint_progress');break;}
   }
@@ -100,6 +103,6 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
   if(options.containedHelpers!==undefined){if(!['true','false'].includes(options.containedHelpers))throw Error('contained-helpers must be true or false');options.containedHelpers=options.containedHelpers==='true';}
   for(const key of ['exe','cwd','target','state','brief','model'])if(!options[key])throw Error(`Missing --${key}`);
   const controller=new AbortController();process.once('SIGINT',()=>controller.abort());process.once('SIGTERM',()=>controller.abort());
-  const result=await supervise({...options,signal:controller.signal});console.log(JSON.stringify({status:result.status,reason:result.reason,counts:result.counts,report:path.resolve(options.state,'report.json')},null,2));
+  const result=await supervise({...options,signal:controller.signal,onProgress:event=>console.log(JSON.stringify(event))});console.log(JSON.stringify({status:result.status,reason:result.reason,counts:result.counts,report:path.resolve(options.state,'report.json')},null,2));
  }catch(e){console.error(e.message);process.exitCode=1;}
 }
