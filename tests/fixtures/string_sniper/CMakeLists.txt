@@ -23,3 +23,5 @@ add_sniper_fixture(credentials)
 add_sniper_fixture(paths)
 
 add_sniper_fixture(ranking)
+
+add_sniper_fixture(references)

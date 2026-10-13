@@ -29,3 +29,4 @@ inspection; no automated checks execute as part of building.
 | `indago_sniper_credentials` | 119 | Credential spellings across lowercase, uppercase, embedded words, URLs, quoted fields, and controls. |
 | `indago_sniper_paths` | 105 | Forty Windows, Unix, registry, relative-path, and execution markers, including overlapping credential indicators. |
 | `indago_sniper_ranking` | 116 | Twenty-four low-score strings, twelve medium-score URLs, and twelve high-score combined indicators; linker address ordering may vary. |
+| `indago_sniper_references` | 91 | Forty distinct functions directly reference one string; inspect total reference counts and the 32-detail cap. |
