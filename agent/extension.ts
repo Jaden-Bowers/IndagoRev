@@ -29,6 +29,10 @@ export default function (pi: any) {
     recoveries = 0;
   pi.on("before_provider_request", (event: any) => {
     const payload = { ...event.payload };
+    if(config.provider==='lmstudio' && config.localThinking==='off'){
+      payload.reasoning_effort='none';
+      payload.chat_template_kwargs={enable_thinking:false};
+    }
     if (config.provider === "openrouter")
       payload.reasoning = { enabled: false };
     if (

@@ -6,6 +6,7 @@ test('real Pi SDK decomposes and checkpoints while shell calls are denied',{skip
  const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'){res.end(JSON.stringify({data:[{id:'mock',state:'loaded',loaded_context_length:32768}]}));return;}
   let raw='';for await(const b of req)raw+=b;const body=JSON.parse(raw);n++;
+  assert.equal(body.reasoning_effort,'none');assert.equal(body.chat_template_kwargs.enable_thinking,false);
   if(/Restricted-static policy denies bash|Tool bash not found/.test(JSON.stringify(body.messages)))denied=true;
   assert(!body.tools?.some(t=>t.function.name==='bash'));
   let call;

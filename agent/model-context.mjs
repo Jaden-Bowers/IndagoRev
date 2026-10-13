@@ -8,6 +8,7 @@ export async function modelContext(config, fetcher = fetch) {
       const response = await fetcher(url, {signal: AbortSignal.timeout(5000)});
       if (!response.ok) throw Error(`HTTP ${response.status}`);
       const models = await response.json();
+      if(config.requireSingleLoadedModel && models.data?.filter(m=>m.state==='loaded').length!==1)throw Error('Long investigation requires exactly one loaded model; unload other instances before starting');
       loaded = models.data?.find(m => m.id === config.model && m.state === 'loaded')?.loaded_context_length;
     } catch (error) {
       if (config.requireLoadedContext) throw Error(`Cannot resolve loaded model context: ${error.message}`);

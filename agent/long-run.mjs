@@ -35,7 +35,9 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
  try{
   const brief=fs.readFileSync(options.brief,'utf8');
   if(options.containedHelpers&&process.platform!=='linux')throw Error('Contained helpers require the Linux native runner and its isolation prerequisites. No Windows/WSL shell fallback.');
-  const identity={artifact:hashFile(target),target,exe:path.resolve(options.exe),model:options.model,endpoint:options.endpoint??'http://127.0.0.1:1234/v1',containedHelpers:options.containedHelpers===true};
+  options={...options,localThinking:options.localThinking??'off'};
+  if(!['off','server'].includes(options.localThinking))throw Error('local-thinking must be off or server');
+  const identity={artifact:hashFile(target),target,exe:path.resolve(options.exe),model:options.model,endpoint:options.endpoint??'http://127.0.0.1:1234/v1',containedHelpers:options.containedHelpers===true,localThinking:options.localThinking,outputTokens:options.outputTokens??2048};
   const limits={hours:options.hours??4,maxBatches:options.maxBatches??48,maxTokens:options.maxTokens??2000000,maxBytes:options.maxBytes??4*1024**3,batchMs:options.batchMs??480000,maxGenerations:options.maxGenerations??16};
   for(const [k,v] of Object.entries(limits))if(!Number.isFinite(v)||v<=0)throw Error(`Invalid budget ${k}`);
   if(limits.batchMs>540000||limits.maxGenerations>128||limits.maxBatches>1000)throw Error('Batch limits exceed supported bounds');
@@ -57,7 +59,7 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
    if(directoryBytes(root)>=limits.maxBytes){stop('storage_budget');break;}
    const space=fs.statfsSync(root);if(space.bavail*space.bsize<1024**3){stop('free_space_floor');break;}
    if(hashFile(target)!==identity.artifact){stop('target_changed');break;}
-   let context;try{context=await resolveContext({...options,provider:'lmstudio',requireLoadedContext:true});}catch(e){stop('provider_preflight: '+e.message);break;}
+   let context;try{context=await resolveContext({...options,provider:'lmstudio',requireLoadedContext:true,requireSingleLoadedModel:true});}catch(e){stop('provider_preflight: '+e.message);break;}
    const question=queue.next();
    if(!question){run.status=queue.read().questions.some(q=>['blocked','pending','partial'].includes(q.status))?'blocked':'completed';run.reason=run.status==='completed'?'queue_exhausted_model_assessments':'no_ready_questions';persist();break;}
    const batch={id:run.batches.length+1,question:question.id,status:'running',started:new Date().toISOString(),tokens:0};
@@ -92,7 +94,7 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
 if(process.argv[1]===fileURLToPath(import.meta.url)){
  const options={};try{
   const args=process.argv.slice(2);for(let i=0;i<args.length;i+=2){if(!args[i].startsWith('--')||args[i+1]===undefined)throw Error('Expected --option value');const key=args[i].slice(2).replace(/-([a-z])/g,(_,c)=>c.toUpperCase());options[key]=args[i+1];}
-  for(const key of ['hours','maxBatches','maxTokens','maxBytes','batchMs','maxGenerations'])if(options[key]!==undefined)options[key]=Number(options[key]);
+  for(const key of ['hours','maxBatches','maxTokens','maxBytes','batchMs','maxGenerations','outputTokens','contextTokens'])if(options[key]!==undefined)options[key]=Number(options[key]);
   if(options.acknowledgeInterruption!==undefined){if(!['true','false'].includes(options.acknowledgeInterruption))throw Error('acknowledge-interruption must be true or false');options.acknowledgeInterruption=options.acknowledgeInterruption==='true';}
   if(options.containedHelpers!==undefined){if(!['true','false'].includes(options.containedHelpers))throw Error('contained-helpers must be true or false');options.containedHelpers=options.containedHelpers==='true';}
   for(const key of ['exe','cwd','target','state','brief','model'])if(!options[key])throw Error(`Missing --${key}`);

@@ -9,4 +9,5 @@ test('loaded context is authoritative and operator may only tighten it',async()=
  assert.equal((await modelContext({model:'local',contextTokens:32768},server)).contextTokens,32768);
  await assert.rejects(modelContext({model:'missing',requireLoadedContext:true},server));
  await assert.rejects(modelContext({model:'local',outputTokens:100000},server));
+ await assert.rejects(modelContext({model:'local',requireLoadedContext:true,requireSingleLoadedModel:true},async()=>({ok:true,json:async()=>({data:[{id:'local',state:'loaded',loaded_context_length:131072},{id:'local:2',state:'loaded',loaded_context_length:131072}]})})),/exactly one/);
 });
