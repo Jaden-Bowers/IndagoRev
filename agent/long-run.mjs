@@ -5,6 +5,7 @@ import {atomic,hash,hashFile} from './native.mjs';
 import {launch} from './cli.mjs';
 import {QuestionQueue} from './question-queue.mjs';
 import {modelContext} from './model-context.mjs';
+const frontendIdentity=()=>hash(fs.readdirSync(import.meta.dirname).filter(f=>/\.(mjs|ts)$/.test(f)).sort().map(f=>f+':'+hashFile(path.join(import.meta.dirname,f))).join('\n'));
 
 export function directoryBytes(directory){
  let bytes=0;for(const e of fs.readdirSync(directory,{withFileTypes:true})){const p=path.join(directory,e.name);if(e.isSymbolicLink())throw Error('Investigation contains a symbolic link');if(e.isDirectory())bytes+=directoryBytes(p);else bytes+=fs.statSync(p).size;}return bytes;
@@ -37,7 +38,7 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
   if(options.containedHelpers&&process.platform!=='linux')throw Error('Contained helpers require the Linux native runner and its isolation prerequisites. No Windows/WSL shell fallback.');
   options={...options,localThinking:options.localThinking??'off'};
   if(!['off','server'].includes(options.localThinking))throw Error('local-thinking must be off or server');
-  const identity={artifact:hashFile(target),target,exe:path.resolve(options.exe),model:options.model,endpoint:options.endpoint??'http://127.0.0.1:1234/v1',containedHelpers:options.containedHelpers===true,localThinking:options.localThinking,outputTokens:options.outputTokens??2048};
+  const identity={artifact:hashFile(target),target,exe:path.resolve(options.exe),exe_sha256:hashFile(options.exe),frontend_sha256:frontendIdentity(),model:options.model,endpoint:options.endpoint??'http://127.0.0.1:1234/v1',containedHelpers:options.containedHelpers===true,localThinking:options.localThinking,outputTokens:options.outputTokens??2048};
   const limits={hours:options.hours??4,maxBatches:options.maxBatches??48,maxTokens:options.maxTokens??2000000,maxBytes:options.maxBytes??4*1024**3,batchMs:options.batchMs??480000,maxGenerations:options.maxGenerations??16};
   for(const [k,v] of Object.entries(limits))if(!Number.isFinite(v)||v<=0)throw Error(`Invalid budget ${k}`);
   if(limits.batchMs>540000||limits.maxGenerations>128||limits.maxBatches>1000)throw Error('Batch limits exceed supported bounds');
@@ -51,7 +52,7 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
   const persist=()=>{run.elapsed_ms=baselineElapsed+Date.now()-started;atomic(runFile,run);report(queue,run);};
   const stop=reason=>{run.status='paused';run.reason=reason;persist();};
   while(true){
-   const dispositions=queue.read().questions;
+   const dispositions=queue.validateEvidence().questions;
    if(dispositions.every(q=>['answered','decomposed','blocked'].includes(q.status))){run.status=dispositions.some(q=>q.status==='blocked')?'blocked':'completed';run.reason=run.status==='completed'?'queue_exhausted_model_assessments':'no_ready_questions';persist();break;}
    if(options.signal?.aborted){stop('cancelled');break;}
    if(fs.existsSync(path.join(root,'STOP'))){stop('operator_stop_file');break;}

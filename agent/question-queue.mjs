@@ -46,11 +46,16 @@ export class QuestionQueue {
   failed_approaches.forEach(s=>bounded(s,1000,'failed approach'));
   Object.assign(q,{status,summary,evidence:receipts,failed_approaches,next_action,independently_verified:false});return this.save(d);
  }
- next(maxAttempts=3){
+ validateEvidence(){
   const d=this.read();
+  let changed=false;
   for(const q of d.questions)if(q.status==='answered'&&q.evidence.some(e=>{try{return hashFile(path.join(this.directory,e.path))!==e.sha256;}catch{return true;}})){
-   q.status='blocked';q.next_action='Cited evidence changed or disappeared; operator review required.';
+   q.status='blocked';q.next_action='Cited evidence changed or disappeared; operator review required.';changed=true;
   }
+  return changed?this.save(d):d;
+ }
+ next(maxAttempts=3){
+  const d=this.validateEvidence();
   for(const q of d.questions)if(q.status==='active'){q.status='partial';q.next_action='Previous batch interrupted; inspect saved receipts before continuing.';}
   for(const q of d.questions)if(['pending','partial'].includes(q.status)&&q.attempts>=maxAttempts)q.status='blocked';
   const q=d.questions.find(q=>['pending','partial'].includes(q.status)&&q.dependencies.every(id=>d.questions.find(p=>p.id===id)?.status==='answered'));
