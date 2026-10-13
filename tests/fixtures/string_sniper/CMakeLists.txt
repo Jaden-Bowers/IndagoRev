@@ -16,3 +16,5 @@ function(add_sniper_fixture name)
 endfunction()
 
 add_sniper_fixture(network)
+
+add_sniper_fixture(credentials)
