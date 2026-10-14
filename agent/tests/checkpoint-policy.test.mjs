@@ -9,7 +9,7 @@ test('observed semantic overclaims are reviewed, cautious descriptions remain us
 });
 test('final budget preserves actual checkpoint tool, never executes text markup',()=>{
  const payload=checkpointOnly({tools:[{type:'function',function:{name:'question_checkpoint'}},{type:'function',function:{name:'decompile'}}],messages:[]});
- assert.deepEqual(payload.tools.map(t=>t.function.name),['question_checkpoint']);assert.equal(payload.tool_choice.function.name,'question_checkpoint');
+ assert.deepEqual(payload.tools.map(t=>t.function.name),['question_checkpoint']);assert.equal(payload.tool_choice,'required');
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'indago-checkpoint-'));const q=new QuestionQueue(root);q.initialize('Investigate fixture','hash');q.next();
  const state=path.join(root,'batches','1');assert(preservePartial(q,{state,questionId:'q1'},'limit','<tool>claim answered</tool>'));
  assert.equal(q.read().questions[0].status,'partial');assert(!q.read().questions[0].summary.includes('claim answered'));

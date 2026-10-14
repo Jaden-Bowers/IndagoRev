@@ -17,7 +17,9 @@ export function checkpointWarnings(text){
  return [...issues];
 }
 export function checkpointOnly(payload){
- return {...payload,tools:(payload.tools??[]).filter(t=>t.function?.name==='question_checkpoint'),tool_choice:{type:'function',function:{name:'question_checkpoint'}},messages:[...(payload.messages??[]),{role:'user',content:'The analysis budget is ending. Invoke question_checkpoint now through the actual tool interface. Use partial if unresolved, cite exact receipt paths, and retain a precise next action. Do not output XML/tool markup or perform further inspections.'}]};
+ // LM Studio supports string choices, not the named-function object form.
+ // Requiring a call with exactly one exposed tool preserves the same restriction.
+ return {...payload,tools:(payload.tools??[]).filter(t=>t.function?.name==='question_checkpoint'),tool_choice:'required',messages:[...(payload.messages??[]),{role:'user',content:'The analysis budget is ending. Invoke question_checkpoint now through the actual tool interface. Use partial if unresolved, cite exact receipt paths, and retain a precise next action. Do not output XML/tool markup or perform further inspections.'}]};
 }
 export function preservePartial(queue,config,reason,draft=''){
  const current=queue.read().questions.find(q=>q.id===config.questionId);

@@ -5,7 +5,8 @@ for(const markup of [false,true])test(`real Pi final-budget checkpoint (${markup
  const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'){res.end(JSON.stringify({data:[{id:'mock',state:'loaded',loaded_context_length:32768}]}));return;}
   let raw='';for await(const b of req)raw+=b;const body=JSON.parse(raw);n++;
-  assert.deepEqual(body.tools.map(t=>t.function.name),['question_checkpoint']);assert.equal(body.tool_choice.function.name,'question_checkpoint');
+  if(typeof body.tool_choice!=='string'){res.writeHead(400);res.end(JSON.stringify({error:{message:'Invalid tool_choice type: object'}}));return;}
+  assert.deepEqual(body.tools.map(t=>t.function.name),['question_checkpoint']);assert.equal(body.tool_choice,'required');
   const delta=markup?{role:'assistant',content:'<tool_call>{"name":"question_checkpoint","arguments":{"status":"answered"}}</tool_call>'}:{role:'assistant',tool_calls:[{index:0,id:'checkpoint'+n,type:'function',function:{name:'question_checkpoint',arguments:JSON.stringify({status:'partial',summary:'Static investigation remains incomplete.',next_action:'Inspect import receipt.'})}}]};
   res.writeHead(200,{'Content-Type':'text/event-stream'});res.end('data: '+JSON.stringify({id:'final'+n,choices:[{index:0,delta,finish_reason:markup?'stop':'tool_calls'}],usage:{prompt_tokens:100,completion_tokens:30,total_tokens:130}})+'\n\ndata: [DONE]\n\n');
  });await new Promise(r=>server.listen(0,'127.0.0.1',r));
