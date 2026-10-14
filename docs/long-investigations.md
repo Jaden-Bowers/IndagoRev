@@ -142,3 +142,22 @@ thinking, and ends batches on controller checkpoints. The model initially suppli
 a result ID where a receipt path was required; the validator rejected it and the
 model corrected the citation. No silent relaxation of the evidence requirement
 was needed.
+
+## Checkpoint recovery and implementation updates
+
+The last two generations of a question batch are reserved for the actual
+`question_checkpoint` tool. Text that resembles a tool call is never executed.
+If the model exhausts its budget without a valid checkpoint, the controller saves
+an explicitly partial checkpoint and retains the unsubmitted draft as untrusted
+data. Provider errors, watchdog timeouts and uncertain interruption still pause
+for operator review.
+
+Narrow review checks reject known unsupported interpretations involving decompiler
+`swi()` operations, empty symbol searches, unwind metadata and security cookies.
+These checks and accompanying instructions are not a general semantic verifier.
+Checkpointed answers remain model assessments, not independently verified findings.
+
+After reviewing a paused run, `--accept-frontend-update true` together with
+`--acknowledge-interruption true` permits a frontend-only implementation upgrade.
+The previous supervisor state is archived in `implementation-updates/`. Target,
+native executable, model and budgets must remain unchanged; usage is not reset.

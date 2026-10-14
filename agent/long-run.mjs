@@ -44,6 +44,12 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
   if(limits.batchMs>540000||limits.maxGenerations>128||limits.maxBatches>1000)throw Error('Batch limits exceed supported bounds');
   const runFile=path.join(root,'supervisor.json');
   run=fs.existsSync(runFile)?JSON.parse(fs.readFileSync(runFile)): {identity,limits,batches:[],elapsed_ms:0,tokens:0,status:'ready'};
+  if(options.acceptFrontendUpdate===true && run.identity.frontend_sha256!==identity.frontend_sha256){
+   const old={...run.identity},next={...identity};delete old.frontend_sha256;delete next.frontend_sha256;
+   if(run.status!=='paused'||options.acknowledgeInterruption!==true||JSON.stringify(old)!==JSON.stringify(next)||JSON.stringify(run.limits)!==JSON.stringify(limits))throw Error('Frontend update requires a reviewed paused run with unchanged target, model and budgets');
+   atomic(path.join(root,'implementation-updates',`${Date.now()}.json`),{previous_run:run,new_identity:identity,reason:'operator_accepted_frontend_update'});
+   run.identity=identity;
+  }
   if(JSON.stringify(run.identity)!==JSON.stringify(identity)||JSON.stringify(run.limits)!==JSON.stringify(limits))throw Error('Run identity or budgets changed; use a new investigation');
   queue=new QuestionQueue(root);queue.initialize(brief,identity.artifact);
   if((run.status==='running'||run.needsReview)&&options.acknowledgeInterruption!==true)throw Error('Previous batch needs review. Reconcile native workers/receipts, then resume with --acknowledge-interruption true.');
@@ -81,7 +87,11 @@ export async function supervise(options,{launchBatch=launch,resolveContext=model
       if(run.tokens>=limits.maxTokens)controller.abort();
      }
     }});
-    batch.result=result;batch.status=result.code===0&&!result.timedOut&&!result.outputLimited&&!controller.signal.aborted&&!batch.provider_error&&!fs.existsSync(path.join(state,'unresolved.json'))?'finished':'interrupted';
+    const marker=path.join(state,'batch-checkpoint.json');
+    const checkpoint=fs.existsSync(marker)?JSON.parse(fs.readFileSync(marker)):null;
+    const saved=queue.read().questions.find(q=>q.id===question.id);
+    const recovered=checkpoint?.question===question.id&&checkpoint.queue_revision===queue.read().revision&&['partial','answered','blocked','decomposed'].includes(saved?.status);
+    batch.result=result;batch.status=result.code===0&&!result.timedOut&&!result.outputLimited&&!controller.signal.aborted&&!batch.provider_error&&(!fs.existsSync(path.join(state,'unresolved.json'))||recovered)?'finished':'interrupted';
     const configFile=path.join(state,'config.json');if(fs.existsSync(configFile))run.active=JSON.parse(fs.readFileSync(configFile)).active;
    }catch(e){batch.status='failed';batch.error=String(e).slice(0,2000);}
    finally{clearTimeout(deadline);clearInterval(monitor);options.signal?.removeEventListener('abort',abort);}
@@ -99,7 +109,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
  const options={};try{
   const args=process.argv.slice(2);for(let i=0;i<args.length;i+=2){if(!args[i].startsWith('--')||args[i+1]===undefined)throw Error('Expected --option value');const key=args[i].slice(2).replace(/-([a-z])/g,(_,c)=>c.toUpperCase());options[key]=args[i+1];}
   for(const key of ['hours','maxBatches','maxTokens','maxBytes','batchMs','maxGenerations','outputTokens','contextTokens'])if(options[key]!==undefined)options[key]=Number(options[key]);
-  if(options.acknowledgeInterruption!==undefined){if(!['true','false'].includes(options.acknowledgeInterruption))throw Error('acknowledge-interruption must be true or false');options.acknowledgeInterruption=options.acknowledgeInterruption==='true';}
+  for(const key of ['acknowledgeInterruption','acceptFrontendUpdate'])if(options[key]!==undefined){if(!['true','false'].includes(options[key]))throw Error(`${key} must be true or false`);options[key]=options[key]==='true';}
   if(options.containedHelpers!==undefined){if(!['true','false'].includes(options.containedHelpers))throw Error('contained-helpers must be true or false');options.containedHelpers=options.containedHelpers==='true';}
   for(const key of ['exe','cwd','target','state','brief','model'])if(!options[key])throw Error(`Missing --${key}`);
   const controller=new AbortController();process.once('SIGINT',()=>controller.abort());process.once('SIGTERM',()=>controller.abort());

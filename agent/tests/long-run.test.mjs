@@ -1,7 +1,28 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import {supervise} from '../long-run.mjs';import {QuestionQueue} from '../question-queue.mjs';import {atomic} from '../native.mjs';
+import {preservePartial} from '../checkpoint-policy.mjs';
 function fixture(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'indago-long-'));fs.writeFileSync(path.join(dir,'sample'),'benign');fs.writeFileSync(path.join(dir,'brief.txt'),'Map the benign sample');return {exe:process.execPath,cwd:dir,target:'sample',state:path.join(dir,'state'),brief:path.join(dir,'brief.txt'),model:'mock',maxBatches:6};}
 const resolveContext=async()=>({contextTokens:32768,outputTokens:2048});
+test('reviewed frontend upgrades preserve budgets and retain old identity',async()=>{
+ const o=fixture();await supervise(o,{resolveContext:async()=>{throw Error('offline');}});
+ const file=path.join(o.state,'supervisor.json'),old=JSON.parse(fs.readFileSync(file));old.identity.frontend_sha256='old-version';atomic(file,old);
+ await assert.rejects(supervise(o,{resolveContext}),/identity/);
+ await assert.rejects(supervise({...o,acceptFrontendUpdate:true},{resolveContext}),/reviewed paused/);
+ await supervise({...o,acceptFrontendUpdate:true,acknowledgeInterruption:true},{resolveContext:async()=>{throw Error('offline');}});
+ assert.equal(fs.readdirSync(path.join(o.state,'implementation-updates')).length,1);
+ const updated=JSON.parse(fs.readFileSync(file));assert.deepEqual(updated.limits,old.limits);assert.equal(updated.tokens,old.tokens);
+});
+test('controller partial checkpoint recovers invalid markup but not timeouts',async()=>{
+ for(const timedOut of [false,true]){
+  const o=fixture();o.maxBatches=1;
+  const result=await supervise(o,{resolveContext,launchBatch:async c=>{
+   atomic(path.join(c.state,'unresolved.json'),{reason:'invalid_final_tool_markup'});
+   preservePartial(new QuestionQueue(c.queueDirectory),c,'limit','<tool>untrusted</tool>');return {code:0,timedOut};
+  }});
+  assert.equal(result.counts.partial,1);
+  assert.equal(result.reason,timedOut?'batch_interrupted_review_receipts_before_resume':'global_budget');
+ }
+});
 test('supervisor decomposes, carries native identity, checkpoints and resumes without extra work',async()=>{
  const o=fixture();let calls=0;
  const launchBatch=async c=>{calls++;assert(c.restrictedStatic);assert.equal(c.authority,'analysis');const q=new QuestionQueue(c.queueDirectory);

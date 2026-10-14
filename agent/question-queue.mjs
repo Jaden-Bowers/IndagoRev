@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {atomic,hash,hashFile} from './native.mjs';
+import {checkpointWarnings} from './checkpoint-policy.mjs';
 
 const bounded=(s,n,label)=>{if(typeof s!=='string'||!s.trim()||s.length>n)throw Error(`Invalid ${label}`);return s;};
 export class QuestionQueue {
@@ -33,6 +34,8 @@ export class QuestionQueue {
   if(!q||q.status!=='active')throw Error('Only the active question can be checkpointed');
   if(!['partial','answered','blocked'].includes(status))throw Error('Invalid checkpoint status');
   bounded(summary,6000,'summary');
+  const issues=checkpointWarnings(summary+'\n'+next_action);
+  if(issues.length)throw Error('Checkpoint requires correction: '+issues.join('; ')+'. Keep unsupported claims explicitly unresolved.');
   if(!Array.isArray(evidence)||evidence.length>12||!Array.isArray(failed_approaches)||failed_approaches.length>12||typeof next_action!=='string'||next_action.length>2000)throw Error('Checkpoint bounds exceeded');
   const receipts=evidence.map(ref=>{
    bounded(ref,2048,'evidence path');const file=fs.realpathSync(path.resolve(this.directory,ref));
