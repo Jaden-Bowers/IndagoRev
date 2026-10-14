@@ -1,5 +1,9 @@
 # IndagoRev agent
 
+For a persistent question queue and bounded unattended static batches, see
+[long-running investigations](../docs/long-investigations.md). This uses a
+restricted tool surface; ordinary interactive Pi below retains host coding tools.
+
 A Pi coding session with the existing C/C++ analysis engines and program knowledge
 store. The previous native controller remains available for comparisons.
 
