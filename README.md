@@ -19,11 +19,15 @@ rename/retype actions. The existing CLI and autonomous harness remain available.
 
 ## Clone and build
 
+`master` is the default development branch; the former `main` branch has been
+consolidated into it. Existing clones on `main` can switch without deleting their
+local work; see [branch migration](docs/branch-migration.md).
+
 Install Git, CMake 3.25+, Python 3 (Z3's **build-time** generator), and a C/C++
 compiler. Install Git LFS if you also want the vendored Frida development libraries.
 
 ```sh
-git clone --recurse-submodules https://github.com/Jaden-Bowers/IndagoRev.git
+git clone --branch master --recurse-submodules https://github.com/Jaden-Bowers/IndagoRev.git
 cd IndagoRev
 ```
 
