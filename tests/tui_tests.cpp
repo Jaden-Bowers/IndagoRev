@@ -650,6 +650,182 @@ void scenario_target_active(const std::string& binary, const Seed& seed) {
     want(tui, "active target: " + seed.target_name, "Enter re-selects the target");
 }
 
+void scenario_import(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: import prompt, cancel, failure and recovery\n";
+    {
+        Session tui(binary, seed.workspace.string(), seed.project);
+        want(tui, "Targets", "start on Targets");
+        tui.send("i");
+        want(tui, "target file path", "i opens the import prompt");
+        tui.send(kEsc);
+        want_gone(tui, "target file path", "Esc cancels the import prompt");
+
+        tui.send("i");
+        want(tui, "target file path", "import prompt reopens");
+        tui.type("/no/such/indago/artifact");
+        tui.enter();
+        want(tui, "not a regular file", "importing a missing file reports an error");
+        want_gone(tui, "target file path", "prompt closes after the failure");
+    }
+    // A failed import followed by a successful one in the same session: the
+    // stale error must not mask the later success.
+    {
+        Session tui(binary, seed.workspace.string(), seed.project);
+        want(tui, "Targets", "start on Targets for the recovery case");
+        tui.send("i");
+        want(tui, "target file path", "import prompt opens");
+        tui.type("/no/such/indago/artifact");
+        tui.enter();
+        want(tui, "not a regular file", "the first import fails");
+
+        tui.send("i");
+        want(tui, "target file path", "the prompt reopens after the failure");
+        tui.type(seed.second_fixture.string());
+        tui.enter();
+        want(tui, "imported", "a later success is shown, not masked by the error");
+        want_gone(tui, "not a regular file", "the stale error is cleared");
+        want(tui, "second.pe64", "the newly imported target appears in the list");
+    }
+}
+
+void scenario_functions(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: functions page and address filter\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    tui.send("g");
+    want(tui, "Functions", "g opens the Functions page");
+    want(tui, "disasm", "Functions help lists disasm");
+    want(tui, "0x401000", "function rows are listed");
+    want(tui, "main", "function view name is shown");
+    want(tui, "blocks=5", "function block count is shown");
+    want(tui, "0x400f00", "lower-address function is listed");
+
+    tui.send("f");
+    want(tui, "filter by address substring", "f opens the filter prompt");
+    tui.type("4010");
+    tui.enter();
+    want(tui, "filter:4010", "filter is reflected in the title");
+    want(tui, "0x401000", "filtered function remains");
+    want_gone(tui, "0x400f00", "non-matching function is filtered out");
+
+    tui.send("F");
+    want(tui, "0x400f00", "F clears the filter");
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc returns to Targets");
+}
+
+void scenario_evidence(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: evidence page and detail\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    tui.send("e");
+    want(tui, "Evidence", "e opens the Evidence page");
+    want(tui, "ev_seed_alpha", "evidence rows are listed");
+    tui.enter();
+    want(tui, "evidence ev_seed_alpha", "Enter opens the evidence detail");
+    want(tui, "producer", "evidence detail shows the producer field");
+    want(tui, "0x401000", "evidence detail shows the native result blob");
+    tui.send(kEsc);
+    want(tui, "Evidence", "Esc returns to the Evidence list");
+    tui.send("r");
+    want(tui, "ev_seed_alpha", "r refreshes the Evidence list");
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc returns to Targets");
+}
+
+void scenario_jobs(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: jobs page, detail and cancel\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    tui.send("J");
+    want(tui, "Jobs", "J opens the Jobs page");
+    want(tui, "job_", "queued jobs are listed");
+    want(tui, "queued", "job status is shown");
+    tui.enter();
+    want(tui, "job job_", "Enter opens the job detail");
+    want(tui, "backend", "job detail shows the backend field");
+    tui.send(kEsc);
+    want(tui, "Jobs", "Esc returns to the Jobs list");
+
+    tui.send("k");
+    want(tui, "Cancel selected job?", "k asks for cancellation confirmation");
+    tui.send("y");
+    tui.enter();
+    want(tui, "cancellation_requested", "confirming reports the cancellation");
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc returns to Targets");
+}
+
+void scenario_query_form(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: query form\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    tui.send("q");
+    want(tui, "Query", "q opens the Query form");
+    want(tui, "run a single analysis operation", "query form shows its subtitle");
+    want(tui, "backend", "backend field is present");
+    want(tui, "operation", "operation field is present");
+    want(tui, "address", "address field is present");
+    want(tui, "view", "view field is present");
+    want(tui, "[Run query]", "run row is present");
+    tui.send(kDown);
+    tui.send(kDown);
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc leaves the query form");
+}
+
+void scenario_harness_read(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: harness listing, detail, records and lease guard\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    tui.send("h");
+    want(tui, "Harness", "h opens the Harness page");
+    want(tui, "seed investigation alpha", "harness lists seeded investigations");
+    want(tui, "seed investigation beta", "harness lists the second investigation");
+    tui.enter();
+    want(tui, "investigation inv_", "Enter opens the investigation detail");
+    tui.send(kEsc);
+    want(tui, "Harness", "Esc returns to Harness");
+
+    tui.send("a");
+    want(tui, "actions inv_", "a opens the investigation actions");
+    tui.send(kEsc);
+    want(tui, "Harness", "Esc returns from actions");
+
+    tui.send("e");
+    want(tui, "events inv_", "e opens the investigation events");
+    tui.send(kEsc);
+    want(tui, "Harness", "Esc returns from events");
+
+    tui.send("r");
+    want(tui, "no owner lease", "explore without a lease is refused");
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc returns to Targets");
+}
+
+void scenario_harness_create_explore(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: harness create and explore\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    tui.send("h");
+    want(tui, "Harness", "Harness page open");
+    tui.send("n");
+    want(tui, "objective", "n opens the objective prompt");
+    tui.type("tui created quest");
+    tui.enter();
+    want(tui, "owner mode", "owner mode prompt follows");
+    tui.enter();  // accept builtin
+    want(tui, "model", "model prompt follows");
+    tui.enter();  // accept default model
+    want(tui, "endpoint", "endpoint prompt follows");
+    tui.enter();  // accept default endpoint
+    want(tui, "required facts", "facts prompt follows");
+    tui.type("fixture artifact");
+    tui.enter();
+    want(tui, "max actions", "max actions prompt follows");
+    tui.enter();  // accept default
+    want(tui, "created (owner lease acquired)", "investigation is created with a lease", 15000);
+    want(tui, "tui created quest", "the new investigation appears in the list");
+
+    tui.send("r");
+    want(tui, "explore inv_", "r runs explore and opens its result", 90000);
+    want(tui, "text", "explore result is shown in the text view");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -670,6 +846,13 @@ int main(int argc, char** argv) {
         scenario_startup(binary, seed);
         scenario_open_project(binary, seed);
         scenario_target_active(binary, seed);
+        scenario_import(binary, seed);
+        scenario_functions(binary, seed);
+        scenario_evidence(binary, seed);
+        scenario_jobs(binary, seed);
+        scenario_query_form(binary, seed);
+        scenario_harness_read(binary, seed);
+        scenario_harness_create_explore(binary, seed);
         scenario_projects_mutation(binary, seed);
 
         std::error_code ec;
