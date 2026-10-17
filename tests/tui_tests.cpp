@@ -456,15 +456,231 @@ struct Seed {
     std::string investigation_id;
 };
 
+Seed seed_workspace(const std::string& binary_unused, const fs::path& root) {
+    (void)binary_unused;
+    Seed seed;
+    seed.workspace = root;
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
+
+    indago::StaticService service(root);
+    service.store().create_project(seed.project);
+    const auto fixture = make_fixture(root, "sample.pe64", 0x90);
+    const auto target = service.store().import_target(seed.project, fixture);
+    seed.target_id = target.id;
+    seed.artifact_sha = target.sha256;
+    seed.target_name = target.display_name;
+    seed.second_fixture = make_fixture(root, "second.pe64", 0xcc);
+
+    // Evidence content-store blob: the TUI verifies its integrity when the
+    // detail page is opened, so it must be a real object.
+    const std::string native =
+        Json{{"functions", Json::array({Json{{"entry", "0x401000"},
+                                             {"name", "main"},
+                                             {"blocks", 5}}})}}.dump();
+    const std::string blob_hash = indago::sha256_text(native);
+    const fs::path blob = root / "objects" / "sha256" /
+                          blob_hash.substr(0, 2) / blob_hash.substr(2);
+    fs::create_directories(blob.parent_path());
+    indago::atomic_write(blob, native);
+
+    // Seed static functions + views so the Functions page has deterministic rows.
+    sqlite3* db = nullptr;
+    if (sqlite3_open((root / "indago-native.sqlite3").string().c_str(), &db) != SQLITE_OK) {
+        throw std::runtime_error("cannot open workspace db for seeding");
+    }
+    const std::string sha = seed.artifact_sha;
+    const std::string evidence_record =
+        Json{{"schema", "indago.evidence.v1"},
+             {"id", "ev_seed_alpha"},
+             {"project", seed.project},
+             {"revision", "rev_seed_a"},
+             {"producer", "airece"},
+             {"state", "derived"},
+             {"status", "completed"},
+             {"artifact_sha256", sha},
+             {"raw_sha256", blob_hash},
+             {"created_at", "2026-01-02T03:04:05Z"}}.dump();
+    const std::string evidence_record_beta =
+        Json{{"schema", "indago.evidence.v1"},
+             {"id", "ev_seed_beta"},
+             {"project", seed.project},
+             {"revision", "rev_seed_b"},
+             {"producer", "sym"},
+             {"state", "derived"},
+             {"status", "partial"},
+             {"artifact_sha256", sha},
+             {"raw_sha256", blob_hash},
+             {"created_at", "2026-01-03T03:04:05Z"}}.dump();
+    std::string sql;
+    sql += "BEGIN;";
+    sql += "INSERT INTO functions VALUES('fn_start','" + seed.project + "','" + sha + "','0x400f00');";
+    sql += "INSERT INTO functions VALUES('fn_main','" + seed.project + "','" + sha + "','0x401000');";
+    sql += "INSERT INTO functions VALUES('fn_helper','" + seed.project + "','" + sha + "','0x401080');";
+    sql += "INSERT INTO evidence(id,project,job,revision,backend,sha,status,record,created) VALUES"
+           "('ev_seed_alpha','" + seed.project + "',NULL,'rev_seed_a','airece','" + blob_hash +
+           "','completed','" + evidence_record + "','2026-01-02T03:04:05Z');";
+    sql += "INSERT INTO evidence(id,project,job,revision,backend,sha,status,record,created) VALUES"
+           "('ev_seed_beta','" + seed.project + "',NULL,'rev_seed_b','sym','" + blob_hash +
+           "','partial','" + evidence_record_beta + "','2026-01-03T03:04:05Z');";
+    sql += "INSERT INTO function_views VALUES('fn_start','ev_seed_alpha','airece',"
+           "'{\"name\":\"_start\",\"blocks\":2,\"coverage\":\"100%\"}');";
+    sql += "INSERT INTO function_views VALUES('fn_main','ev_seed_alpha','airece',"
+           "'{\"name\":\"main\",\"blocks\":5,\"coverage\":\"92%\"}');";
+    sql += "INSERT INTO function_views VALUES('fn_helper','ev_seed_alpha','airece',"
+           "'{\"name\":\"helper\",\"blocks\":3,\"coverage\":\"80%\"}');";
+    sql += "COMMIT;";
+    try {
+        exec_sql(db, sql);
+    } catch (...) {
+        sqlite3_close(db);
+        throw;
+    }
+    sqlite3_close(db);
+
+    // Two queued jobs via the real prepare path (no execution required).
+    auto make_job = [&](const std::string& backend, const std::string& operation) {
+        Json request{{"schema", "indago.action.v1"},
+                     {"project", seed.project},
+                     {"target_id", seed.target_id},
+                     {"backend", backend},
+                     {"operation", operation},
+                     {"address", ""},
+                     {"view", "compact"},
+                     {"arguments", Json::object()}};
+        service.prepare(request);
+    };
+    make_job("lief", "inventory");
+    make_job("floss", "strings");
+
+    // Two investigations so the Harness page lists more than one.
+    auto make_investigation = [&](const std::string& objective) {
+        auto record = indago::harness_action(
+            service, "create",
+            Json{{"project", seed.project},
+                 {"target_id", seed.target_id},
+                 {"objective", objective},
+                 {"required_facts", Json::array({"fixture artifact"})},
+                 {"owner",
+                  {{"mode", "builtin"},
+                   {"name", "indago-tui-tests"},
+                   {"profile",
+                    {{"provider", "local"},
+                     {"model", "qwen2.5-coder:14b"},
+                     {"endpoint", "http://127.0.0.1:8080/v1/chat/completions"}}}}},
+                 {"budget",
+                  {{"max_actions", 8}, {"wall_ms", 3600000}, {"output_bytes", 2097152}}}});
+        return record.value("id", std::string{});
+    };
+    seed.investigation_id = make_investigation("seed investigation alpha");
+    make_investigation("seed investigation beta");
+    return seed;
+}
+
+// ---------------------------------------------------------------------------
+// Scenarios. Each opens a fresh session against the seeded workspace.
+// ---------------------------------------------------------------------------
+
+void scenario_startup(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: startup and project browser\n";
+    Session tui(binary, seed.workspace.string(), "");
+    want(tui, "IndagoRev", "banner shows the product name");
+    want(tui, seed.workspace.filename().string(), "banner shows the workspace");
+    want(tui, "Projects", "startup lands on the Projects page");
+    want(tui, "Enter open", "Projects help lists Enter open");
+    want(tui, "q quit", "Projects help lists q quit");
+    want(tui, seed.project, "project browser lists the project");
+    want(tui, "1/1", "position note shows 1/1 with one project");
+
+    // Capabilities is reachable straight from the browser as a static view.
+    tui.send("c");
+    want(tui, "capabilities", "c opens the capabilities view from Projects");
+    want(tui, "line 1/", "capabilities detail shows the line note");
+    tui.send(kEsc);
+    want(tui, "Projects", "Esc returns from capabilities to Projects");
+}
+
+void scenario_projects_mutation(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: create a project and navigate the browser\n";
+    Session tui(binary, seed.workspace.string(), "");
+    want(tui, "1/1", "one project before creation");
+    tui.send("n");
+    want(tui, "new project name", "n opens the new-project prompt");
+    tui.type("extraproj");
+    tui.enter();
+    want(tui, "created project extraproj", "creating a project reports success");
+    want(tui, "extraproj", "the new project appears in the list");
+    want(tui, "1/2", "position note updates to 1/2");
+
+    tui.send(kEnd);
+    want(tui, "2/2", "End selects the last project");
+    tui.send(kHome);
+    want(tui, "1/2", "Home selects the first project");
+    tui.send(kDown);
+    want(tui, "2/2", "Down moves to the second project");
+    tui.send("k");
+    want(tui, "1/2", "k moves back up");
+
+    // Cancelling the create prompt must not create anything.
+    tui.send("n");
+    tui.send(kEsc);
+    want_gone(tui, "new project name", "Esc cancels the new-project prompt");
+    want(tui, "Projects", "browser is still on screen after cancelling");
+}
+
+void scenario_open_project(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: open a project into the target list\n";
+    Session tui(binary, seed.workspace.string(), "");
+    want(tui, seed.project, "project listed");
+    tui.enter();
+    want(tui, "Targets", "Enter opens the Targets page");
+    want(tui, seed.target_name, "target list shows the imported artifact");
+    want(tui, "a analyze", "Targets help lists analyze");
+}
+
+void scenario_target_active(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: active target selection\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    want(tui, "Targets", "--project starts on Targets");
+    want(tui, seed.target_name, "target is listed");
+    want(tui, "active target: " + seed.target_name, "first target is auto-activated");
+    want(tui, seed.target_name + " [active]", "active target is marked in the list");
+    tui.send(kEnter);
+    want(tui, "active target: " + seed.target_name, "Enter re-selects the target");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "usage: tui_tests <path-to-indago-tui>\n";
-        return 2;
+    try {
+        if (argc < 2) {
+            std::cerr << "usage: tui_tests <path-to-indago-tui>\n";
+            return 2;
+        }
+        const std::string binary = argv[1];
+        const std::string stamp = std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        const fs::path workspace =
+            fs::temp_directory_path() / ("indago-workbench-" + stamp);
+
+        std::cout << "tui_tests: binary=" << binary << "\n";
+        const Seed seed = seed_workspace(binary, workspace);
+
+        scenario_startup(binary, seed);
+        scenario_open_project(binary, seed);
+        scenario_target_active(binary, seed);
+        scenario_projects_mutation(binary, seed);
+
+        std::error_code ec;
+        fs::remove_all(workspace, ec);
+
+        std::cout << "tui_tests: " << g_pass << " passed, " << g_fail << " failed\n";
+        return g_fail == 0 ? 0 : 1;
+    } catch (const std::exception& e) {
+        std::cerr << "tui_tests: fatal: " << e.what() << "\n";
+        return 1;
     }
-    std::cout << "tui_tests: " << g_pass << " passed, " << g_fail << " failed\n";
-    return g_fail == 0 ? 0 : 1;
 }
 
 #else  // _WIN32
