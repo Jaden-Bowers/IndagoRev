@@ -264,6 +264,198 @@ private:
     int cx_{0};
 };
 
+// ---------------------------------------------------------------------------
+// A pty-hosted indago-tui process plus the emulator for its output.
+// ---------------------------------------------------------------------------
+class Session {
+public:
+    Session(const std::string& binary, const std::string& workspace,
+            const std::string& project, int cols = 120, int rows = 36)
+        : binary_(binary), workspace_(workspace), project_(project),
+          screen_(rows, cols) {
+        struct winsize ws{};
+        ws.ws_col = static_cast<unsigned short>(cols);
+        ws.ws_row = static_cast<unsigned short>(rows);
+        pid_ = forkpty(&master_, nullptr, nullptr, &ws);
+        if (pid_ < 0) throw std::runtime_error(std::string("forkpty: ") + std::strerror(errno));
+        if (pid_ == 0) {
+            setenv("TERM", "xterm-256color", 1);
+            setenv("LANG", "C.UTF-8", 1);
+            setenv("LC_ALL", "C.UTF-8", 1);
+            std::vector<const char*> args{binary_.c_str(), "--workspace", workspace_.c_str()};
+            if (!project_.empty()) {
+                args.push_back("--project");
+                args.push_back(project_.c_str());
+            }
+            args.push_back(nullptr);
+            execv(binary_.c_str(), const_cast<char* const*>(args.data()));
+            _exit(127);
+        }
+        const int flags = fcntl(master_, F_GETFL, 0);
+        fcntl(master_, F_SETFL, flags | O_NONBLOCK);
+    }
+
+    ~Session() {
+        if (pid_ > 0) {
+            kill(pid_, SIGKILL);
+            int status = 0;
+            waitpid(pid_, &status, 0);
+        }
+        if (master_ >= 0) close(master_);
+    }
+
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+
+    void send(const std::string& keys, int reap_ms = 40) {
+        if (master_ < 0) return;
+        const ssize_t n = write(master_, keys.data(), keys.size());
+        (void)n;
+        // Give the app a beat to consume the input and start reacting.
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::milliseconds(reap_ms);
+        while (std::chrono::steady_clock::now() < deadline) {
+            pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    void type(const std::string& text) { send(text); }
+    void enter() { send(kEnter); }
+
+    bool expect(const std::string& needle, int timeout_ms = 5000) {
+        return wait_until([&] { return screen_.contains(needle); }, timeout_ms);
+    }
+
+    bool gone(const std::string& needle, int timeout_ms = 3000) {
+        return wait_until([&] { return !screen_.contains(needle); }, timeout_ms);
+    }
+
+    bool contains(const std::string& needle) { pump(); return screen_.contains(needle); }
+
+    void settle(int ms) {
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::milliseconds(ms);
+        while (std::chrono::steady_clock::now() < deadline) {
+            pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    void resize(int cols, int rows) {
+        struct winsize ws{};
+        ws.ws_col = static_cast<unsigned short>(cols);
+        ws.ws_row = static_cast<unsigned short>(rows);
+        ioctl(master_, TIOCSWINSZ, &ws);
+        screen_.resize(rows, cols);
+        if (pid_ > 0) kill(pid_, SIGWINCH);
+        settle(120);
+    }
+
+    bool wait_exit(int timeout_ms = 4000) {
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::milliseconds(timeout_ms);
+        while (std::chrono::steady_clock::now() < deadline) {
+            pump();
+            int status = 0;
+            const pid_t r = waitpid(pid_, &status, WNOHANG);
+            if (r == pid_) {
+                pid_ = -1;
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return false;
+    }
+
+    std::string screen() { pump(); return screen_.text(); }
+
+private:
+    void pump() {
+        if (master_ < 0) return;
+        char scratch[16384];
+        for (;;) {
+            const ssize_t n = read(master_, scratch, sizeof(scratch));
+            if (n <= 0) break;
+            screen_.feed(scratch, static_cast<std::size_t>(n));
+        }
+    }
+
+    template <typename Predicate>
+    bool wait_until(Predicate done, int timeout_ms) {
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::milliseconds(timeout_ms);
+        while (std::chrono::steady_clock::now() < deadline) {
+            pump();
+            if (done()) return true;
+            struct pollfd pfd{master_, POLLIN, 0};
+            poll(&pfd, 1, 25);
+        }
+        pump();
+        return done();
+    }
+
+    std::string binary_;
+    std::string workspace_;
+    std::string project_;
+    int master_{-1};
+    pid_t pid_{-1};
+    Screen screen_;
+};
+
+void want(Session& s, const std::string& needle, const std::string& what, int ms = 6000) {
+    check(s.expect(needle, ms), what);
+}
+
+void want_gone(Session& s, const std::string& needle, const std::string& what, int ms = 3000) {
+    check(s.gone(needle, ms), what);
+}
+
+// ---------------------------------------------------------------------------
+// Fixture: a deterministic ELF64 so import_target has a real artifact.
+// ---------------------------------------------------------------------------
+fs::path make_fixture(const fs::path& dir, const std::string& name,
+                      unsigned char fill) {
+    std::vector<unsigned char> bytes(0x1000, fill);
+    auto put = [&](std::size_t at, std::uint64_t value, unsigned count) {
+        for (unsigned i = 0; i < count; ++i)
+            bytes[at + i] = static_cast<unsigned char>(value >> (8 * i));
+    };
+    bytes[0] = 0x7f; bytes[1] = 'E'; bytes[2] = 'L'; bytes[3] = 'F';
+    bytes[4] = 2; bytes[5] = 1; bytes[6] = 1;
+    put(16, 2, 2); put(18, 62, 2); put(20, 1, 4); put(24, 0x401000, 8); put(32, 64, 8);
+    put(52, 64, 2); put(54, 56, 2); put(56, 1, 2);
+    const std::vector<unsigned char> code{0x48,0x39,0xd8,0x74,0x02,0x75,0x00,0x0f,0x94,0xc0,
+                                          0x48,0x0f,0x45,0xc3,0xe8,0,0,0,0,0xff,0xd0,0xeb,0,0xc3};
+    put(64, 1, 4); put(68, 5, 4); put(72, 0x1000, 8); put(80, 0x401000, 8); put(88, 0x401000, 8);
+    put(96, code.size(), 8); put(104, code.size(), 8); put(112, 0x1000, 8);
+    bytes.insert(bytes.end(), code.begin(), code.end());
+    const auto path = dir / name;
+    std::ofstream file(path, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(bytes.data()),
+               static_cast<std::streamsize>(bytes.size()));
+    return path;
+}
+
+void exec_sql(sqlite3* db, const std::string& sql) {
+    char* err = nullptr;
+    if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
+        const std::string message = err ? err : "sql error";
+        sqlite3_free(err);
+        throw std::runtime_error(message);
+    }
+}
+
+struct Seed {
+    fs::path workspace;
+    std::string project = "sampleproj";
+    std::string target_name = "sample.pe64";
+    std::string target_id;
+    std::string artifact_sha;
+    fs::path second_fixture;
+    std::string investigation_id;
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
