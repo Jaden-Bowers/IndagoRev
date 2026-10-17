@@ -826,6 +826,153 @@ void scenario_harness_create_explore(const std::string& binary, const Seed& seed
     want(tui, "text", "explore result is shown in the text view");
 }
 
+void scenario_static_views(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: static project info and capabilities views\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    want(tui, "Targets", "start on Targets");
+    tui.send("p");
+    want(tui, "project info", "p opens the project info view");
+    want(tui, seed.project, "project info shows the project name");
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc returns from project info");
+
+    tui.send("c");
+    want(tui, "capabilities", "c opens the capabilities view from Targets");
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc returns from capabilities");
+}
+
+void scenario_detail_navigation(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: detail scrolling and find\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    tui.send("c");
+    want(tui, "capabilities", "capabilities view open");
+    want(tui, "line 1/", "starts on the first line");
+    want(tui, "col 0", "starts at column 0");
+
+    tui.send(kDown);
+    want(tui, "line 2/", "Down advances one line");
+    tui.send(kUp);
+    want(tui, "line 1/", "Up returns one line");
+    tui.send(" ");
+    want_gone(tui, "line 1/", "space page-downs away from the first line");
+
+    tui.send(kHome);
+    want(tui, "line 1/", "Home returns to the first line");
+
+    tui.send(kEnd);
+    want(tui, "line ", "End lands on a real line");
+    want_gone(tui, "1000000001", "End never shows an out-of-range line number");
+    tui.send(kHome);
+    want(tui, "line 1/", "Home returns to the first line after End");
+
+    tui.send("/");
+    want(tui, "find", "slash opens the find prompt");
+    tui.type("schema");
+    tui.enter();
+    want(tui, "found", "find reports the match count");
+    want(tui, "find:schema", "the needle appears in the title note");
+    tui.send("n");
+    want(tui, "schema", "n jumps to the next match");
+    tui.send("/");
+    tui.enter();
+    want(tui, "find cleared", "an empty needle clears the search");
+    tui.send(kEsc);
+    want(tui, "Targets", "Esc returns to Targets");
+    want_gone(tui, "find:schema", "the find marker is cleared on a new view");
+}
+
+void scenario_help_lines(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: per-page help text\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    want(tui, "i import", "Targets help mentions import");
+    want(tui, "J jobs", "Targets help mentions jobs");
+    tui.send("h");
+    want(tui, "r run explore", "Harness help mentions run explore");
+    want(tui, "R refresh", "Harness help mentions refresh");
+    tui.send("q");
+    want(tui, "Up/Down select", "Query help mentions selection");
+    tui.send(kEsc);
+    want(tui, "Harness", "Esc returns to Harness");
+    tui.send("g");
+    want(tui, "f filter", "Functions help mentions filter");
+    want(tui, "x xair cfg", "Functions help mentions xair cfg");
+    tui.send(kEsc);
+    want(tui, "Harness", "Esc returns to Harness again");
+}
+
+void scenario_back_keys(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: alternative back keys\n";
+    Session tui(binary, seed.workspace.string(), seed.project);
+    want(tui, "Targets", "start on Targets");
+    tui.send("g");
+    want(tui, "Functions", "into Functions");
+    tui.send("b");
+    want(tui, "Targets", "b goes back");
+    tui.send("g");
+    want(tui, "Functions", "into Functions again");
+    tui.send(kLeft);
+    want(tui, "Targets", "Left goes back");
+}
+
+void scenario_quit_dialog(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: quit confirmation\n";
+    Session tui(binary, seed.workspace.string(), "");
+    want(tui, "Projects", "start on Projects");
+    tui.send("q");
+    want(tui, "Quit IndagoRev TUI?", "q asks for quit confirmation");
+    tui.send("n");
+    tui.enter();
+    want_gone(tui, "Quit IndagoRev TUI?", "n cancels the quit");
+    want(tui, "Projects", "still on Projects after cancelling");
+    tui.send("q");
+    want(tui, "Quit IndagoRev TUI?", "q asks again");
+    tui.send(kEsc);
+    want_gone(tui, "Quit IndagoRev TUI?", "Esc cancels the quit");
+}
+
+void scenario_quit_exits(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: confirming quit exits the process\n";
+    Session tui(binary, seed.workspace.string(), "");
+    want(tui, "Projects", "start on Projects");
+    tui.send("q");
+    want(tui, "Quit IndagoRev TUI?", "quit prompt shown");
+    tui.send("y");
+    tui.enter();
+    check(tui.wait_exit(6000), "process exits after confirming quit");
+}
+
+void scenario_terminal_sizes(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: terminal size handling\n";
+    {
+        Session tui(binary, seed.workspace.string(), "", 60, 6);
+        want(tui, "terminal too small", "tiny terminal shows the size warning");
+        want(tui, "(60x6)", "warning names the current size");
+        want(tui, "need at least 48x8", "warning states the minimum size");
+        tui.resize(120, 36);
+        want(tui, "Projects", "resizing larger restores the normal view", 6000);
+    }
+    {
+        Session tui(binary, seed.workspace.string(), "", 48, 8);
+        want(tui, "Projects", "the minimum size renders normally");
+        want_gone(tui, "terminal too small", "no warning at the minimum size", 800);
+    }
+}
+
+void scenario_project_flag(const std::string& binary, const Seed& seed) {
+    std::cout << "scenario: --project flag\n";
+    {
+        Session tui(binary, seed.workspace.string(), seed.project);
+        want(tui, "Targets", "--project opens directly on Targets");
+        want(tui, seed.target_name, "--project lists the target");
+    }
+    {
+        Session tui(binary, seed.workspace.string(), "doesnotexist");
+        want(tui, "Projects", "an unknown project falls back to Projects");
+        want(tui, "unknown project", "an unknown project reports an error");
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -853,6 +1000,14 @@ int main(int argc, char** argv) {
         scenario_query_form(binary, seed);
         scenario_harness_read(binary, seed);
         scenario_harness_create_explore(binary, seed);
+        scenario_static_views(binary, seed);
+        scenario_detail_navigation(binary, seed);
+        scenario_help_lines(binary, seed);
+        scenario_back_keys(binary, seed);
+        scenario_quit_dialog(binary, seed);
+        scenario_quit_exits(binary, seed);
+        scenario_terminal_sizes(binary, seed);
+        scenario_project_flag(binary, seed);
         scenario_projects_mutation(binary, seed);
 
         std::error_code ec;

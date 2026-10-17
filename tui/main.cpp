@@ -219,9 +219,15 @@ void render(tui::App& app, unsigned tick) {
         case tui::Page::Detail: {
             const std::vector<std::string>* raw = nullptr;
             const auto* lines = detail_main(app, &raw);
+            // Clamp before computing the note so the line counter never shows
+            // an out-of-range number for the frame after End / PgDn.
+            const int total = static_cast<int>(lines->size());
+            if (app.detail_row > total - 1) app.detail_row = total > 0 ? total - 1 : 0;
+            if (app.detail_row < 0) app.detail_row = 0;
+            if (app.detail_col < 0) app.detail_col = 0;
             std::string title = app.show_task ? app.show_task->title : app.static_title;
             std::string note = "line " + std::to_string(app.detail_row + 1) + "/" +
-                               std::to_string(lines->size()) + "  col " +
+                               std::to_string(total) + "  col " +
                                std::to_string(app.detail_col);
             if (app.show_task)
                 note += app.detail_show_raw ? "  [raw json]" : "  [text]  J raw";
@@ -379,6 +385,10 @@ int main(int argc, char** argv) {
             render(app, tick);
             continue;
         }
+
+        // Each user action starts from a clean slate so a previous failure
+        // cannot mask a later success on the status line.
+        app.last_error.clear();
 
         const bool global_back =
             key == 27 || key == 'b' || key == 'B' || key == KEY_LEFT;
