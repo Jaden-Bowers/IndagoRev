@@ -14,6 +14,27 @@ target_compile_definitions(indago_mac_core PRIVATE INDAGO_MAC_ROOT="${INDAGO_MAC
 target_compile_options(indago_mac_core PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(indago-mac cli.cpp)
 target_link_libraries(indago-mac PRIVATE indago_mac_core)
+add_library(indago_mac_controller controller.cpp ../gui/mock_workbench.cpp)
+target_link_libraries(indago_mac_controller PUBLIC indago_mac_core)
+
+# Reuse both existing layouts and the Cocoa/Metal window adapter. Only this
+# target enables live analysis; the original GUI targets retain their mock mode.
+enable_language(OBJCXX)
+set(CMAKE_OBJCXX_STANDARD 20)
+set(IMGUI "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/imgui")
+set(IMGUI_CORE ${IMGUI}/imgui.cpp ${IMGUI}/imgui_draw.cpp
+  ${IMGUI}/imgui_tables.cpp ${IMGUI}/imgui_widgets.cpp)
+add_executable(indago-mac-gui MACOSX_BUNDLE desktop.mm ../gui/main_macos.mm
+  ../gui/workbench.cpp ${IMGUI_CORE} ${IMGUI}/misc/cpp/imgui_stdlib.cpp
+  ${IMGUI}/backends/imgui_impl_osx.mm ${IMGUI}/backends/imgui_impl_metal.mm)
+target_include_directories(indago-mac-gui PRIVATE ../gui ${IMGUI} ${IMGUI}/backends ${IMGUI}/misc/cpp)
+target_compile_definitions(indago-mac-gui PRIVATE INDAGO_MAC_LIVE INDAGO_MAC_ROOT="${INDAGO_MAC_ROOT}")
+target_compile_options(indago-mac-gui PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+target_link_libraries(indago-mac-gui PRIVATE indago_mac_controller
+  "-framework Cocoa" "-framework Metal" "-framework MetalKit"
+  "-framework QuartzCore" "-framework GameController")
+set_target_properties(indago-mac-gui PROPERTIES OUTPUT_NAME IndagoRev-ARM64
+  MACOSX_BUNDLE_GUI_IDENTIFIER local.indagorev.arm64)
 include(CTest)
 if(BUILD_TESTING)
   add_executable(mac-analysis-fixture tests/fixture.c)

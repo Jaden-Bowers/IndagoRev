@@ -8,6 +8,9 @@
 #include "imgui_impl_osx.h"
 #include "imgui_impl_metal.h"
 #include "workbench.hpp"
+#ifdef INDAGO_MAC_LIVE
+#include "controller.hpp"
+#endif
 
 // A delegate receives callbacks from macOS. This object handles both app events
 // (launch/quit) and requests from the Metal view to draw another frame.
@@ -40,6 +43,10 @@
                 NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable
       backing:NSBackingStoreBuffered defer:NO];
   self.window.title = @"IndagoRev - Mock Workbench";
+#ifdef INDAGO_MAC_LIVE
+  self.window.title = @"IndagoRev - macOS ARM64";
+  InitializeMacWorkbench();
+#endif
   self.window.contentMinSize = NSMakeSize(1000, 680);
   self.window.releasedWhenClosed = NO;
   self.window.delegate = self;
@@ -123,6 +130,10 @@
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = @"Discard unsaved mock notes?";
   alert.informativeText = @"Notes are kept only for this session. Cancel to copy them before quitting.";
+#ifdef INDAGO_MAC_LIVE
+  alert.messageText = @"Discard unsaved notes?";
+  alert.informativeText = @"Saved notes remain on disk. Cancel to save your changes before quitting.";
+#endif
   [alert addButtonWithTitle:@"Cancel"];
   [alert addButtonWithTitle:@"Discard and quit"];
   if ([alert runModal] != NSAlertSecondButtonReturn)
@@ -140,6 +151,9 @@
 }
 
 - (void)applicationWillTerminate:(NSNotification*)notification {
+#ifdef INDAGO_MAC_LIVE
+  ShutdownMacWorkbench();
+#endif
   // Startup can fail before creating the context, so only clean it up if it exists.
   if (!ImGui::GetCurrentContext())
     return;

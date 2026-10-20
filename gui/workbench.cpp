@@ -10,6 +10,7 @@
 // Start reading at DrawWorkbench() to see how the panels fit together.
 namespace {
 mock::Workbench model;
+WorkbenchIntegration* live = nullptr;
 // Layout is presentation state, not project data. Both views draw the same
 // model, so changing views cannot reset a selection, draft, or running reply.
 enum class Layout { Stacked, Compare };
@@ -60,6 +61,12 @@ void DrawSettings() {
     else SetWorkbenchStyle();
   }
   ImGui::SliderFloat("Text size", &ImGui::GetStyle().FontSizeBase, 13, 20, "%.0f");
+  if (live) {
+    Wrapped("Native macOS ARM64 / Ghidra static analysis. Notes and evidence are saved in the workspace. AI and live annotations are not connected.");
+    if (ImGui::Button("Close settings")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return;
+  }
   int scenario = static_cast<int>(model.scenario);
   ImGui::BeginDisabled(model.Busy());
   if (ImGui::Combo("Next operation", &scenario,
@@ -72,6 +79,35 @@ void DrawSettings() {
 }
 
 void DrawHeader() {
+  if (live) {
+    ImGui::TextUnformatted("[i]  IndagoRev / macOS ARM64");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.45f, 0.8f, 0.55f, 1), "REAL STATIC ANALYSIS");
+    ImGui::SameLine();
+    DrawLayoutButton();
+    ImGui::SameLine();
+    if (ImGui::Button("Console")) selectConsole = focusConsole = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Settings")) ImGui::OpenPopup("Settings");
+    DrawSettings();
+    ImGui::Separator();
+    Wrapped(live->target + " | Mach-O / ARM64 | " + live->producer);
+    ImGui::BeginDisabled(live->busy || model.Dirty());
+    if (ImGui::Button("Open ARM64 file...")) live->open();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!live->loaded);
+    if (ImGui::Button("Analyze again")) live->analyze();
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+    if (live->busy) {
+      ImGui::SameLine();
+      if (ImGui::Button("Cancel analysis")) live->cancel();
+      ImGui::SameLine();
+      ImGui::TextUnformatted("Analyzing saved bytes; target is not running...");
+    }
+    ImGui::Separator();
+    return;
+  }
   ImGui::TextUnformatted("[i]  IndagoRev / Decoder study");
   ImGui::SameLine();
   ImGui::TextColored(ImVec4(0.85f, 0.60f, 0.20f, 1), "MOCK DATA");
@@ -100,8 +136,8 @@ void DrawHeader() {
 
 void DrawProject() {
   Heading("Project");
-  if (ImGui::TreeNodeEx("decoder-study", ImGuiTreeNodeFlags_DefaultOpen)) {
-    Wrapped("sample-decoder.exe");
+  if (ImGui::TreeNodeEx(live ? "ARM64 project" : "decoder-study", ImGuiTreeNodeFlags_DefaultOpen)) {
+    Wrapped(live ? live->target : "sample-decoder.exe");
     if (ImGui::Selectable(model.Dirty() ? "notes.md *" : "notes.md", model.showNotes))
       model.OpenNotes();
     ImGui::TreePop();
@@ -128,23 +164,30 @@ void DrawProject() {
     ImGui::Spacing();
     ImGui::PopID();
   }
-  if (!visible) Wrapped("No matching functions. Clear the filter to show all four.");
+  if (!visible) Wrapped(live ? "No matching functions. Open and analyze a file, or clear the filter." :
+                               "No matching functions. Clear the filter to show all four.");
   if (model.Dirty()) Wrapped("Save or discard notes before navigating.");
 }
 
 void DrawNotes() {
   Heading("notes.md");
-  Wrapped("Session-only notes. Copy the text to keep it after closing the app.");
-  if (ImGui::Button("Save notes")) model.SaveNotes();
+  Wrapped(live ? "Notes are saved alongside this project's immutable analysis evidence." :
+                 "Session-only notes. Copy the text to keep it after closing the app.");
+  ImGui::BeginDisabled(live && !live->loaded);
+  if (ImGui::Button("Save notes")) { if (live) live->saveNotes(); else model.SaveNotes(); }
+  ImGui::EndDisabled();
   SameLineIfFits("Discard changes");
   if (ImGui::Button("Discard changes")) model.DiscardNotes();
   SameLineIfFits("Copy notes");
   if (ImGui::Button("Copy notes")) ImGui::SetClipboardText(model.notes.c_str());
-  ImGui::TextDisabled("%s", model.Dirty() ? "Unsaved changes" : "Saved in this session");
+  ImGui::TextDisabled("%s", model.Dirty() ? "Unsaved changes" : live ? "Saved to project" : "Saved in this session");
+  ImGui::BeginDisabled(live && !live->loaded);
   ImGui::InputTextMultiline("##Notes", &model.notes, ImVec2(-1, -1));
+  ImGui::EndDisabled();
 }
 
 void DrawPseudocode() {
+  if (model.functions.empty()) { Heading("Pseudocode"); Wrapped("Open an ARM64 Mach-O file to begin."); return; }
   const auto& f = model.functions[model.selected];
   Heading("Pseudocode");
   ImGui::TextDisabled("%s", f.name.c_str());
@@ -175,12 +218,14 @@ void DrawPseudocode() {
 
 void DrawAssembly() {
   Heading("Assembly");
+  if (model.functions.empty()) { Wrapped("No analyzed instructions yet."); return; }
   const auto& rows = model.functions[model.selected].assembly;
   const bool exact = model.instruction >= 0 && rows[model.instruction].codeLine >= 0;
   ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
   Wrapped(exact ? "Mapped to selected code" : "No exact mapping / containing function");
   ImGui::PopStyleColor();
-  if (model.partial) Wrapped("Partial replay: showing the last saved fixture listing.");
+  if (model.partial) Wrapped(live ? "Partial analysis: inspect the evidence diagnostics." :
+                                   "Partial replay: showing the last saved fixture listing.");
   if (ImGui::BeginChild("Assembly rows", ImVec2(0, 0), 0, ImGuiWindowFlags_HorizontalScrollbar)) {
     for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
       const auto& row = rows[i];
@@ -203,6 +248,15 @@ void DrawAssembly() {
 }
 
 void DrawEvidence() {
+  if (live) {
+    Wrapped(live->evidence.empty() ? "No analysis evidence yet." : live->evidence);
+    if (!model.functions.empty()) {
+      const auto& f = model.functions[model.selected];
+      Wrapped("Function: " + f.name + " / " + f.address);
+      Wrapped(f.explanation);
+    }
+    return;
+  }
   const auto& f = model.functions[model.selected];
   Wrapped("Backend evidence / synthetic fixture");
   ImGui::Text("Location: %s / lines %d-%d", f.name.c_str(),
@@ -229,6 +283,7 @@ void BeginEdit() {
 }
 
 void DrawEdits() {
+  if (live) { Wrapped("Decompiler annotations are not connected in this milestone. Use project notes to retain your observations."); return; }
   Wrapped("Annotations are session-only user assertions. They do not patch a binary.");
   ImGui::SetNextItemWidth(160);
   ImGui::Combo("Annotation", &editKind, "Function name\0Signature\0Variable type\0");
@@ -303,7 +358,7 @@ void DrawConsole() {
   const auto flags = ImGuiInputTextFlags_EnterReturnsTrue |
                      ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackCompletion;
   if (ImGui::InputTextWithHint("##Command", "help / Up-Down history / Tab complete", &command, flags, ConsoleCallback)) {
-    model.Execute(command);
+    if (live) live->execute(command); else model.Execute(command);
     command.clear();
     scrollConsole = focusConsole = true;
   }
@@ -390,6 +445,14 @@ void DrawCitation(const mock::Reference& ref) {
 }
 
 void DrawAgent() {
+  if (live) {
+    Heading("References");
+    Wrapped("AI chat is not connected. These references quote the real decompiled listing; no scripted answer is presented as analysis.");
+    for (const auto& ref : model.references) {
+      ImGui::PushID(ref.id); DrawCitation(ref); ImGui::PopID();
+    }
+    return;
+  }
   Heading("Agent / scripted preview");
   const float composerHeight = 100 + ImGui::GetFrameHeightWithSpacing() * 3 +
                                (model.references.empty() ? 0 : 86);
@@ -465,10 +528,12 @@ void SetWorkbenchStyle() {
 
 bool WorkbenchHasUnsavedNotes() { return model.Dirty(); }
 void DiscardWorkbenchNotes() { model.DiscardNotes(); }
+void ConfigureWorkbench(WorkbenchIntegration* integration) { live = integration; }
+mock::Workbench& WorkbenchModel() { return model; }
 
 void DrawWorkbench() {
   // Time advances only mock progress; no worker threads or x64 tools are needed.
-  model.Tick(ImGui::GetIO().DeltaTime);
+  if (live) live->tick(); else model.Tick(ImGui::GetIO().DeltaTime);
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->WorkPos);
   ImGui::SetNextWindowSize(viewport->WorkSize);
