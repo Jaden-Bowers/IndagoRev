@@ -137,9 +137,7 @@ void Controller::SaveNotes() {
 
 void Controller::Execute(const std::string& text) {
   if (text.empty() || text.size() > 4096) return;
-  state.history.push_back(text);
-  if (state.history.size() > 100) state.history.erase(state.history.begin());
-  state.Log("> " + text);
+  state.RecordCommand(text);
   std::istringstream in(text);
   std::string command, value; in >> command; std::getline(in >> std::ws, value);
   if (command == "help") state.Log("Live commands: help, functions, goto NAME/ADDRESS, analyze, cancel, notes, save, status, clear, history. Use Open ARM64 file to select a binary.");

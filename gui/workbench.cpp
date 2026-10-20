@@ -321,7 +321,12 @@ int ConsoleCallback(ImGuiInputTextCallbackData* data) {
   if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
     replacement = model.RecallHistory(data->EventKey == ImGuiKey_UpArrow ? -1 : 1, data->Buf);
   } else if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
-    const auto matches = mock::Workbench::Completions(data->Buf);
+    auto matches = mock::Workbench::Completions(data->Buf);
+    if (live) {
+      matches.clear();
+      for (const std::string item : {"help", "functions", "goto", "analyze", "cancel", "notes", "save", "status", "clear", "history"})
+        if (item.starts_with(data->Buf)) matches.push_back(item);
+    }
     if (matches.size() == 1) replacement = matches.front() + " ";
     else {
       std::string list = matches.empty() ? "No command matches." : "Commands:";

@@ -64,6 +64,7 @@ public:
   bool ApplyEdit(int function, int expectedRevision, const std::string& kind,
                  const std::string& value);
   void Execute(const std::string& command);
+  void RecordCommand(const std::string& command); // Shared history for real and mock consoles.
   std::string RecallHistory(int direction, const std::string& draft);
   static std::vector<std::string> Completions(const std::string& prefix);
   void Log(const std::string& text);

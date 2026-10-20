@@ -112,6 +112,13 @@
   [encoder endEncoding];
   [commands presentDrawable:drawable];
   [commands commit];
+#ifdef INDAGO_MAC_LIVE
+  if (MacWorkbenchSmokeTesting()) {
+    // Only diagnostic runs wait here; normal interactive frames stay asynchronous.
+    [commands waitUntilCompleted];
+    MacWorkbenchRendered(commands.status == MTLCommandBufferStatusCompleted);
+  }
+#endif
 }
 
 - (void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size {

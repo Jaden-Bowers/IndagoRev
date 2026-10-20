@@ -34,3 +34,5 @@ private:
 // Cocoa provides only the file chooser and application lifecycle hooks.
 void InitializeMacWorkbench();
 void ShutdownMacWorkbench();
+bool MacWorkbenchSmokeTesting();
+void MacWorkbenchRendered(bool graphicsCompleted);

@@ -103,7 +103,7 @@ bool Workbench::Navigate(const std::string& query) {
       if (Lower(f.assembly[j].address) == key)
         return SelectFunction(i) && SelectInstruction(j);
   }
-  return Fail("No mock function or instruction matches: " + query);
+  return Fail("No function or instruction matches: " + query);
 }
 bool Workbench::OpenNotes() { showNotes = true; return true; }
 void Workbench::SaveNotes() {
@@ -234,14 +234,17 @@ bool Workbench::ApplyEdit(int index, int expected, const std::string& kind, cons
 
 // This parser has an explicit command list. There is deliberately no system(),
 // shell, subprocess, filesystem, or network call anywhere in the mock model.
-void Workbench::Execute(const std::string& input) {
-  const auto text = Trim(input);
-  if (text.empty()) return;
-  if (text.size() > 4096) { Fail("Command exceeds 4096 bytes."); return; }
+void Workbench::RecordCommand(const std::string& text) {
   Append(history, text, 100);
   historyPosition = static_cast<int>(history.size());
   historyDraft.clear();
   Append(console, "> " + text, 300);
+}
+void Workbench::Execute(const std::string& input) {
+  const auto text = Trim(input);
+  if (text.empty()) return;
+  if (text.size() > 4096) { Fail("Command exceeds 4096 bytes."); return; }
+  RecordCommand(text);
   std::istringstream words(text);
   std::string command, argument;
   words >> command;

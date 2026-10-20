@@ -158,6 +158,10 @@ int main(int argc, char** argv) {
       controller.Execute("explain");
       REQUIRE(model.messages.empty());
       REQUIRE(model.status.find("Unsupported live command") != std::string::npos);
+      REQUIRE(model.RecallHistory(-1, "draft") == "explain");
+      REQUIRE(model.RecallHistory(-1, "") == "goto _check_result");
+      REQUIRE(model.RecallHistory(1, "") == "explain");
+      REQUIRE(model.RecallHistory(1, "") == "draft");
       ImGui::DestroyContext();
 
       // Both timeout and cancellation must leave the last successful evidence.

@@ -34,7 +34,10 @@ target_link_libraries(indago-mac-gui PRIVATE indago_mac_controller
   "-framework Cocoa" "-framework Metal" "-framework MetalKit"
   "-framework QuartzCore" "-framework GameController")
 set_target_properties(indago-mac-gui PROPERTIES OUTPUT_NAME IndagoRev-ARM64
-  MACOSX_BUNDLE_GUI_IDENTIFIER local.indagorev.arm64)
+  MACOSX_BUNDLE_GUI_IDENTIFIER local.indagorev.arm64
+  MACOSX_BUNDLE_BUNDLE_NAME "IndagoRev ARM64"
+  MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
+  MACOSX_BUNDLE_BUNDLE_VERSION "1")
 include(CTest)
 if(BUILD_TESTING)
   add_executable(mac-analysis-fixture tests/fixture.c)
