@@ -105,15 +105,22 @@ int main(int argc, char** argv) {
     const auto p = macbuild::Import(root / "sample ' $.macho", root / "workspace");
     REQUIRE(p.metadata.at("target_executed") == false);
     REQUIRE(p.metadata.at("slice_sha256") == macbuild::Sha256(bytes));
+    const auto app = root / "Decoder Demo.app";
+    macbuild::WriteAtomic(app / "Contents/MacOS/Decoder", std::string(bytes.begin(), bytes.end()));
+    macbuild::WriteAtomic(app / "Contents/Info.plist",
+        "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict>"
+        "<key>CFBundleExecutable</key><string>Decoder</string></dict></plist>");
     {
       macbuild::Controller controller(model, root / "workspace");
       ConfigureWorkbench(&controller.view);
       REQUIRE(model.functions.empty() && model.messages.empty());
-      controller.Open(root / "sample ' $.macho");
+      controller.Open(app);
       REQUIRE(controller.view.busy);
       Wait(controller);
       REQUIRE(model.functions.size() >= 3);
       REQUIRE(!model.partial && !model.Busy());
+      REQUIRE(controller.view.target == "Decoder Demo.app");
+      REQUIRE(controller.view.evidence.find("Contents/MacOS/Decoder") != std::string::npos);
       const auto report = macbuild::LoadAnalysis(p);
       REQUIRE(report.at("target_executed") == false);
       REQUIRE(report.at("architecture") == "AARCH64");

@@ -23,7 +23,9 @@ int main() {
     auto x64 = header; x64[4] = 7;
     Reject([&] { Arm64Slice(x64); });
     auto arm64e = header; arm64e[8] = 2;
-    Reject([&] { Arm64Slice(arm64e); });
+    Require(Arm64Slice(arm64e).cpuSubtype == 2);
+    auto arm64x1 = arm64e; arm64x1[8] = 12;
+    Reject([&] { Arm64Slice(arm64x1); });
     auto invalid = header; invalid[20] = 8;
     Reject([&] { Arm64Slice(invalid); });
     WriteAtomic(root / "sample", std::string(header.begin(), header.end()));

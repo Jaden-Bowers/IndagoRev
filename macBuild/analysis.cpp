@@ -82,7 +82,7 @@ Json Capabilities() {
   const bool available = access(tools.java.c_str(), X_OK) == 0 &&
       access((tools.ghidra / "Ghidra/Features/Decompiler/os/mac_arm_64/decompile").c_str(), X_OK) == 0 &&
       fs::exists(tools.scripts / "MacExport.java");
-  return {{"edition", "macOS ARM64"}, {"formats", {"Mach-O arm64", "universal arm64 slice"}},
+  return {{"edition", "macOS ARM64"}, {"formats", {".app main executable", "Mach-O arm64/arm64e", "universal ARM64 slice"}},
       {"import", true}, {"static_analysis", available}, {"backend", "Ghidra 12.0.3"},
       {"availability_is_qualification", false}, {"execution", false}, {"x64_targets", false}};
 }
@@ -122,6 +122,8 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
     throw std::runtime_error("Ghidra output does not match this ARM64 input.");
   report["original_sha256"] = p.metadata.at("sha256");
   report["slice_offset"] = p.metadata.at("slice_offset");
+  report["isa_variant"] = p.metadata.value("isa_variant", "arm64");
+  report["cpu_subtype"] = p.metadata.value("cpu_subtype", std::uint32_t(0));
   report["script_sha256"] = scriptHash;
   report["ghidra_properties_sha256"] = propertiesHash;
   report["target_executed"] = false;

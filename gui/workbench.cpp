@@ -93,7 +93,7 @@ void DrawHeader() {
     ImGui::Separator();
     Wrapped(live->target + " | Mach-O / ARM64 | " + live->producer);
     ImGui::BeginDisabled(live->busy || model.Dirty());
-    if (ImGui::Button("Open ARM64 file...")) live->open();
+    if (ImGui::Button("Open app or ARM64 file...")) live->open();
     ImGui::SameLine();
     ImGui::BeginDisabled(!live->loaded);
     if (ImGui::Button("Analyze again")) live->analyze();

@@ -1,5 +1,6 @@
 #include "project.hpp"
 #include "file_io.hpp"
+#include "bundle.hpp"
 #include <CommonCrypto/CommonDigest.h>
 #include <fstream>
 #include <iomanip>
@@ -27,10 +28,11 @@ void CheckThin(const Source& b, std::size_t start, std::size_t size) {
   if (Number(b, start, 4, false) != 0xfeedfacf ||
       Number(b, start + 4, 4, false) != 0x0100000c)
     throw std::runtime_error("Select an ARM64 Mach-O file; x64, PE and ELF are unsupported.");
-  // arm64e adds pointer-authentication ABI behavior. Do not claim it is already
-  // qualified simply because it shares ARM64's CPU type.
-  if ((Number(b, start + 8, 4, false) & 0x00ffffff) != 0)
-    throw std::runtime_error("This milestone supports generic arm64, not arm64e.");
+  // Static Ghidra analysis accepts generic arm64 and baseline arm64e. Newer
+  // variants (such as arm64e.x1) are not silently treated as the same ISA.
+  const auto subtype = Number(b, start + 8, 4, false) & 0x00ffffff;
+  if (subtype != 0 && subtype != 2)
+    throw std::runtime_error("Unsupported ARM64 variant; a generic arm64 or baseline arm64e slice is required.");
   const auto kind = Number(b, start + 12, 4, false);
   if (kind != 2 && kind != 6 && kind != 8)
     throw std::runtime_error("Expected a Mach-O executable, dynamic library or bundle.");
@@ -79,7 +81,7 @@ Slice ParseArm64Slice(const Source& bytes) {
   const auto magic = Number(bytes, 0, 4, true);
   if (magic != 0xcafebabe && magic != 0xcafebabf) {
     CheckThin(bytes, 0, bytes.size());
-    return {0, bytes.size(), false};
+    return {0, bytes.size(), false, static_cast<std::uint32_t>(Number(bytes, 8, 4, false))};
   }
   const auto count = Number(bytes, 4, 4, true);
   const std::size_t stride = magic == 0xcafebabf ? 32 : 20;
@@ -99,14 +101,23 @@ Slice ParseArm64Slice(const Source& bytes) {
       if (offset < other.offset + other.size && other.offset < offset + size)
         throw std::runtime_error("Overlapping universal slices.");
     slices.push_back({static_cast<std::size_t>(offset), static_cast<std::size_t>(size), true});
-    if (Number(bytes, at, 4, true) == 0x0100000c &&
-        (Number(bytes, at + 4, 4, true) & 0x00ffffff) == 0) {
-      if (selected.size) throw std::runtime_error("Ambiguous ARM64 slices.");
+    const auto rawSubtype = static_cast<std::uint32_t>(Number(bytes, at + 4, 4, true));
+    const auto subtype = rawSubtype & 0x00ffffff;
+    if (Number(bytes, at, 4, true) == 0x0100000c && (subtype == 0 || subtype == 2)) {
       CheckThin(bytes, offset, size);
-      selected = slices.back();
+      if (Number(bytes, offset + 8, 4, false) != rawSubtype)
+        throw std::runtime_error("Universal table and Mach-O slice disagree on CPU subtype.");
+      if (selected.size && (selected.cpuSubtype & 0x00ffffff) == subtype)
+        throw std::runtime_error("Ambiguous ARM64 slices.");
+      // Prefer generic arm64 when available. Otherwise use baseline arm64e;
+      // Books also contains arm64e.x1, which we deliberately leave unselected.
+      if (!selected.size || subtype == 0) {
+        selected = slices.back();
+        selected.cpuSubtype = rawSubtype;
+      }
     }
   }
-  if (!selected.size) throw std::runtime_error("No supported ARM64 slice in this file.");
+  if (!selected.size) throw std::runtime_error("No generic arm64 or baseline arm64e slice in this file.");
   return selected;
 }
 
@@ -135,11 +146,21 @@ void WriteAtomic(const fs::path& destination, const std::string& text) {
 }
 
 Project Import(const fs::path& file, const fs::path& workspace) {
-  const BinaryFile original(file);
+  const auto input = ResolveAnalysisInput(file);
+  const BinaryFile original(input.executable);
   Arm64Slice(original); // Reject unsupported formats before copying a large file.
   const auto hash = original.Hash(0, original.size());
   Project p{fs::absolute(workspace) / hash, {}};
-  if (fs::exists(p.directory / "project.json")) return LoadProject(p.directory);
+  if (fs::exists(p.directory / "project.json")) {
+    p = LoadProject(p.directory);
+    // Opening a previously imported raw executable through its .app keeps the
+    // same identity, notes and evidence, while adding a useful application name.
+    if (!input.bundle.empty()) {
+      p.metadata.update(input.bundle);
+      WriteAtomic(p.directory / "project.json", p.metadata.dump(2));
+    }
+    return p;
+  }
   // Copy and verify the original first. Extract from that stable snapshot rather
   // than rereading the user's application while it might be updating on disk.
   original.CopyAtomic(p.directory / "original.bin", 0, original.size(), hash);
@@ -150,7 +171,9 @@ Project Import(const fs::path& file, const fs::path& workspace) {
   p.metadata = {{"schema", "indago.mac-project.v1"}, {"name", file.filename().string()},
       {"architecture", "arm64"}, {"format", "Mach-O"}, {"sha256", hash},
       {"slice_sha256", sliceHash}, {"slice_offset", slice.offset},
-      {"slice_size", slice.size}, {"universal", slice.universal}, {"target_executed", false}};
+      {"slice_size", slice.size}, {"universal", slice.universal}, {"target_executed", false},
+      {"cpu_subtype", slice.cpuSubtype}, {"isa_variant", (slice.cpuSubtype & 0x00ffffff) == 2 ? "arm64e" : "arm64"}};
+  p.metadata.update(input.bundle);
   WriteAtomic(p.directory / "notes.md", "# Analysis notes\n\n");
   WriteAtomic(p.directory / "project.json", p.metadata.dump(2));
   return p;
@@ -168,6 +191,7 @@ Project LoadProject(const fs::path& directory) {
   if (original.Hash(0, original.size()) != p.metadata.at("sha256").get<std::string>() ||
       selectedHash != p.metadata.at("slice_sha256").get<std::string>() ||
       slice.offset != p.metadata.at("slice_offset") || slice.size != p.metadata.at("slice_size") ||
+      slice.cpuSubtype != p.metadata.value("cpu_subtype", std::uint32_t(0)) ||
       selected.size() != slice.size || original.Hash(slice.offset, slice.size) != selectedHash)
     throw std::runtime_error("Project input integrity check failed.");
   return p;

@@ -9,8 +9,9 @@ x64 programs. Linux and Windows ARM builds are deferred.
 
 ## Delivered first milestone
 
-The [macBuild application](../macBuild/README.md) imports real generic ARM64
-Mach-O programs, runs pinned native Ghidra, and shows functions, assembly,
+The [macBuild application](../macBuild/README.md) imports real ARM64/arm64e
+Mach-O programs (including a selected `.app`'s main executable), runs pinned
+native Ghidra, and shows functions, assembly,
 pseudocode and evidence in both existing GUI layouts. Notes and immutable analysis
 reports persist across reopening. Analysis runs off the UI thread and supports
 cancellation; the selected program is never executed.

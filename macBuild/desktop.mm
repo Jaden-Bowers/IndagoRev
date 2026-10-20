@@ -22,9 +22,12 @@ void InitializeMacWorkbench() {
   controller->view.open = [] {
     // File selection is the only Cocoa-dependent part of opening a project.
     NSOpenPanel* panel = [NSOpenPanel openPanel];
-    panel.canChooseDirectories = NO;
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = YES; // .app packages are directories on disk.
+    panel.treatsFilePackagesAsDirectories = NO; // Select the app itself in one step.
     panel.allowsMultipleSelection = NO;
-    panel.message = @"Choose an ARM64 Mach-O executable or dynamic library. It will be analyzed, not executed.";
+    panel.prompt = @"Analyze";
+    panel.message = @"Choose a .app (such as Books) or an ARM64 executable. The main executable will be analyzed without launching the app.";
     if ([panel runModal] == NSModalResponseOK) controller->Open(panel.URL.path.UTF8String);
   };
   ConfigureWorkbench(&controller->view);

@@ -22,7 +22,7 @@ Controller::Controller(mock::Workbench& model, fs::path folder, Tools settings)
   view.cancel = [this] { cancelled = true; state.Log("Cancelling analysis..."); };
   view.saveNotes = [this] { SaveNotes(); };
   view.execute = [this](const std::string& command) { Execute(command); };
-  state.Log("Open an ARM64 Mach-O file. Analysis never executes the selected program.");
+  state.Log("Open a .app or ARM64 Mach-O file. Analysis never executes the selected program.");
 }
 
 Controller::~Controller() {
@@ -43,6 +43,8 @@ void Controller::ShowProject(Project next) {
   view.target = project->metadata.at("name").get<std::string>();
   view.evidence = "Input SHA-256: " + project->metadata.at("sha256").get<std::string>() +
                   "\nNo analysis yet. Target has not been executed.";
+  if (project->metadata.contains("bundle_executable"))
+    state.Log("Application main executable: " + project->metadata.at("bundle_executable").get<std::string>());
   WriteAtomic(workspace / "last-project.json", Json{{"sha256", project->metadata.at("sha256")}}.dump());
   if (fs::exists(project->directory / "latest.json")) ShowReport(LoadAnalysis(*project));
 }
@@ -123,6 +125,14 @@ void Controller::ShowReport(const Json& report) {
       "\nImage base: " + report.at("image_base").get<std::string>() +
       "\n" + (state.partial ? "Partial export; inspect function diagnostics." : "Export completed within configured limits.") +
       "\nNo target execution. Mapping is by containing function, not exact source line.\nSaved evidence: " + project->directory.string();
+  view.evidence += "\nCPU variant: " + project->metadata.value("isa_variant", "arm64");
+  if (report.value("analysis_timed_out", false))
+    view.evidence += "\nGhidra reached the 60-second analysis limit; results are incomplete.";
+  if (report.value("functions_truncated", false))
+    view.evidence += "\nOnly the first 256 functions were exported.";
+  if (project->metadata.contains("bundle_executable"))
+    view.evidence += "\nApplication main executable: " + project->metadata.at("bundle_executable").get<std::string>() +
+        "\nBundled frameworks and helpers are not included in this analysis.";
 }
 
 void Controller::SaveNotes() {
@@ -140,7 +150,7 @@ void Controller::Execute(const std::string& text) {
   state.RecordCommand(text);
   std::istringstream in(text);
   std::string command, value; in >> command; std::getline(in >> std::ws, value);
-  if (command == "help") state.Log("Live commands: help, functions, goto NAME/ADDRESS, analyze, cancel, notes, save, status, clear, history. Use Open ARM64 file to select a binary.");
+  if (command == "help") state.Log("Live commands: help, functions, goto NAME/ADDRESS, analyze, cancel, notes, save, status, clear, history. Use Open app or ARM64 file to select an application or binary.");
   else if (command == "functions") for (const auto& f : state.functions) state.Log(f.address + " " + f.name);
   else if (command == "goto" || command == "open") state.Navigate(value);
   else if (command == "analyze") StartAnalysis();

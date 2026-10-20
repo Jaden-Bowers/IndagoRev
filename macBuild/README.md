@@ -13,8 +13,10 @@ later launches reuse them. Nothing is installed into system directories.
 
 In the application:
 
-1. Click **Open ARM64 file...** and select a macOS ARM64 executable or dynamic
-   library. Opening a new file starts static analysis automatically.
+1. Click **Open app or ARM64 file...** and select an application such as
+   `/System/Applications/Books.app`, or an ARM64 executable/dynamic library.
+   Select the `.app` itself; there is no need to browse its package contents.
+   Opening a new file starts static analysis automatically.
 2. Select a function to see its pseudocode and ARM assembly.
 3. Click **Compare layout** to place those panes side by side. **Stacked layout**
    returns to the original view without resetting the selected function.
@@ -28,6 +30,21 @@ AI replies and decompiler edits are explicitly unavailable in this milestone.
 **Add reference** captures real pseudocode for navigation, without generating a
 scripted explanation. Assembly navigation identifies the containing function;
 exact pseudocode-line mappings are not claimed.
+
+For `.app` inputs, the importer reads `Contents/Info.plist` and uses its
+`CFBundleExecutable` entry to find the main executable in `Contents/MacOS`.
+Both XML and binary property lists work, including renamed application bundles.
+The project records the application name and executable path. It snapshots the
+main executable only; bundled frameworks, helpers and resources are not analyzed
+as part of that import. Opening the executable directly and then its bundle
+retains the same project, notes and evidence.
+
+Books was checked on the development Mac: its universal executable has baseline
+arm64e and arm64e.x1 slices. The importer selected baseline arm64e, and Ghidra
+returned assembly and pseudocode for 256 functions. That run hit the 60-second
+analysis and 256-function export limits, so the GUI explicitly reports partial
+results. This is useful static inspection, not a complete reconstruction of Books
+or a guarantee that every Objective-C/Swift construct decompiles correctly.
 
 ## Build and test from Terminal
 
@@ -58,6 +75,11 @@ the old 64 MiB boundary. A sparse FAT64 fixture also checks offsets above 4 GiB.
 These cases validate file handling; padding a small program does not simulate
 the analysis complexity of a large production application.
 
+The bundle suite covers XML/binary plists, renamed applications, missing or
+malformed metadata, internal/external symlinks, saved notes, and deterministic
+arm64/arm64e slice selection. Real Books analysis is a manual integration check;
+the automated tests do not depend on which system applications are installed.
+
 For a native window/rendering smoke check, launch the executable with
 `--smoke-test --workspace ABSOLUTE_TEST_FOLDER --file ABSOLUTE_FIXTURE_PATH`.
 It waits for real analysis and completed Metal frames, writes `native-smoke.json`
@@ -72,6 +94,7 @@ Read these implementation files in this order:
 |---|---|
 | [project.hpp](project.hpp), [project.cpp](project.cpp) | Validate Mach-O headers, select an ARM64 slice, hash inputs, save/reopen projects. |
 | [file_io.hpp](file_io.hpp), [file_io.cpp](file_io.cpp) | Read binary headers and hash/copy large files in bounded chunks. |
+| [bundle.hpp](bundle.hpp), [bundle.mm](bundle.mm) | Resolve a `.app` to its declared main executable using macOS property-list parsing. |
 | [analysis.hpp](analysis.hpp), [analysis.cpp](analysis.cpp) | Launch Ghidra with an argument array, enforce time/cancellation limits, persist verified results. |
 | [ghidra/MacExport.java](ghidra/MacExport.java) | Ask Ghidra for functions, pseudocode and assembly; record incomplete results. |
 | [controller.cpp](controller.cpp) | Connect background analysis and persistent notes to the shared panel model. |
@@ -108,9 +131,12 @@ packaging are later work.
 
 - Native Apple Silicon macOS; CMake deployment target is macOS 13. The oldest
   target OS is not qualified merely by setting that compiler option.
-- Generic little-endian ARM64 Mach-O executables, dynamic libraries and bundles,
-  including a generic ARM64 slice in a universal file. ARM64e, ARM32, x64-only
-  files, ELF, PE and object files are rejected by this milestone's importer.
+- Little-endian ARM64 and baseline arm64e Mach-O executables, dynamic libraries
+  and bundles. Universal files prefer generic arm64, otherwise baseline arm64e.
+  The original CPU subtype/ABI flags are preserved in project metadata/evidence.
+  Standalone arm64e.x1, ARM32, x64-only files, ELF, PE and object files remain
+  unsupported. This adds static arm64e inspection, not pointer-authentication
+  emulation or native execution support.
 - There is no fixed application input-size cap. Import and reopen use a 64 KiB
   header cache and 1 MiB hash/copy buffers, rather than whole-file memory copies.
   Allow disk space for both the original file and its extracted ARM64 slice,
@@ -136,3 +162,7 @@ This Ghidra release includes a native macOS ARM64 decompiler; no x64 translation
 or separate native-component build is needed for this pin. Upstream license and
 notice files remain in the extracted distributions. Nothing is fetched at analysis
 time. The repository's existing vendored Dear ImGui and JSON library are reused.
+
+Bundle resolution follows Apple's [CFBundleExecutable documentation](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleexecutable).
+The file picker uses [treatsFilePackagesAsDirectories](https://developer.apple.com/documentation/appkit/nssavepanel/treatsfilepackagesasdirectories)
+to keep applications selectable as single packages.

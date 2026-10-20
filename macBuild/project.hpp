@@ -13,6 +13,7 @@ using Bytes = std::vector<unsigned char>;
 struct Slice {
   std::size_t offset, size;
   bool universal;
+  std::uint32_t cpuSubtype = 0; // Preserve arm64e ABI flags as recorded in Mach-O.
 };
 struct Project {
   fs::path directory;
