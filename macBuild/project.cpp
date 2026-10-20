@@ -159,8 +159,4 @@ Project LoadProject(const fs::path& directory) {
   return p;
 }
 
-Json Capabilities() {
-  return {{"edition", "macOS ARM64"}, {"formats", {"Mach-O arm64", "universal arm64 slice"}},
-      {"import", true}, {"static_analysis", false}, {"execution", false}, {"x64_targets", false}};
-}
 } // namespace macbuild

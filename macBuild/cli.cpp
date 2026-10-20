@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "analysis.hpp"
 #include <iostream>
 
 int main(int argc, char** argv) {
@@ -7,10 +8,13 @@ int main(int argc, char** argv) {
       std::cout << macbuild::Capabilities().dump(2) << '\n';
     else if (argc == 4 && std::string(argv[1]) == "import")
       std::cout << macbuild::Import(argv[2], argv[3]).metadata.dump(2) << '\n';
-    else if (argc == 3 && std::string(argv[1]) == "show")
+    else if (argc == 3 && std::string(argv[1]) == "analyze") {
+      std::atomic_bool cancel{false};
+      std::cout << macbuild::Analyze(macbuild::LoadProject(argv[2]), macbuild::DefaultTools(), cancel).dump(2) << '\n';
+    } else if (argc == 3 && std::string(argv[1]) == "show")
       std::cout << macbuild::LoadProject(argv[2]).metadata.dump(2) << '\n';
     else {
-      std::cerr << "Usage: indago-mac capabilities | import FILE WORKSPACE | show PROJECT\n";
+      std::cerr << "Usage: indago-mac capabilities | import FILE WORKSPACE | show PROJECT | analyze PROJECT\n";
       return 2;
     }
   } catch (const std::exception& error) {
