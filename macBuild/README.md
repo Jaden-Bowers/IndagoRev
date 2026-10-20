@@ -52,6 +52,12 @@ timeouts, corrupt evidence, and universal-file validation. The project test
 checks import, input identity and storage. The original mock GUI tests still run
 from their original `gui` build.
 
+The large-file suite imports and analyzes a 320 MiB padded ARM64 fixture, reopens
+its saved project, checks large universal containers, and detects corruption past
+the old 64 MiB boundary. A sparse FAT64 fixture also checks offsets above 4 GiB.
+These cases validate file handling; padding a small program does not simulate
+the analysis complexity of a large production application.
+
 For a native window/rendering smoke check, launch the executable with
 `--smoke-test --workspace ABSOLUTE_TEST_FOLDER --file ABSOLUTE_FIXTURE_PATH`.
 It waits for real analysis and completed Metal frames, writes `native-smoke.json`
@@ -65,6 +71,7 @@ Read these implementation files in this order:
 | File | Responsibility |
 |---|---|
 | [project.hpp](project.hpp), [project.cpp](project.cpp) | Validate Mach-O headers, select an ARM64 slice, hash inputs, save/reopen projects. |
+| [file_io.hpp](file_io.hpp), [file_io.cpp](file_io.cpp) | Read binary headers and hash/copy large files in bounded chunks. |
 | [analysis.hpp](analysis.hpp), [analysis.cpp](analysis.cpp) | Launch Ghidra with an argument array, enforce time/cancellation limits, persist verified results. |
 | [ghidra/MacExport.java](ghidra/MacExport.java) | Ask Ghidra for functions, pseudocode and assembly; record incomplete results. |
 | [controller.cpp](controller.cpp) | Connect background analysis and persistent notes to the shared panel model. |
@@ -104,7 +111,12 @@ packaging are later work.
 - Generic little-endian ARM64 Mach-O executables, dynamic libraries and bundles,
   including a generic ARM64 slice in a universal file. ARM64e, ARM32, x64-only
   files, ELF, PE and object files are rejected by this milestone's importer.
-- Input limit: 64 MiB. Export limits: 256 functions, 2,048 instructions per
+- There is no fixed application input-size cap. Import and reopen use a 64 KiB
+  header cache and 1 MiB hash/copy buffers, rather than whole-file memory copies.
+  Allow disk space for both the original file and its extracted ARM64 slice,
+  plus Ghidra's temporary analysis data. Opening still waits for the import and
+  integrity checks; Ghidra analysis runs in the background.
+- Export limits: 256 functions, 2,048 instructions per
   function, 32,768 pseudocode characters per function. Truncation is explicit.
 - Ghidra automatic analysis: 60-second limit; decompilation: 10 seconds per
   function; total worker: 180 seconds. Java heap: 2 GiB. Successful report files

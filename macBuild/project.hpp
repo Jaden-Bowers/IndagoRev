@@ -18,6 +18,7 @@ struct Project {
   fs::path directory;
   Json metadata;
 };
+// Bounded, in-memory reader for small documents/tools, not imported binaries.
 Bytes ReadBytes(const fs::path& file, std::size_t limit = 64 * 1024 * 1024);
 std::string Sha256(const Bytes& bytes);
 Slice Arm64Slice(const Bytes& bytes);

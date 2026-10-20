@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "file_io.hpp"
 #include <CommonCrypto/CommonDigest.h>
 #include <fstream>
 #include <iomanip>
@@ -10,7 +11,8 @@ namespace macbuild {
 namespace {
 // Read integers explicitly: a universal Mach-O header is big-endian, while
 // the supported ARM64 slice is little-endian. Host byte order is irrelevant.
-std::uint64_t Number(const Bytes& b, std::size_t at, unsigned count, bool big) {
+template<class Source>
+std::uint64_t Number(const Source& b, std::size_t at, unsigned count, bool big) {
   if (at > b.size() || count > b.size() - at)
     throw std::runtime_error("Truncated Mach-O header.");
   std::uint64_t value = 0;
@@ -18,7 +20,8 @@ std::uint64_t Number(const Bytes& b, std::size_t at, unsigned count, bool big) {
     value |= std::uint64_t(b[at + i]) << (8 * (big ? count - 1 - i : i));
   return value;
 }
-void CheckThin(const Bytes& b, std::size_t start, std::size_t size) {
+template<class Source>
+void CheckThin(const Source& b, std::size_t start, std::size_t size) {
   if (size < 32 || start > b.size() || size > b.size() - start)
     throw std::runtime_error("Invalid Mach-O slice bounds.");
   if (Number(b, start, 4, false) != 0xfeedfacf ||
@@ -69,7 +72,10 @@ std::string Sha256(const Bytes& bytes) {
   return out.str();
 }
 
-Slice Arm64Slice(const Bytes& bytes) {
+// The same validation handles test bytes and disk-backed inputs. Only the small
+// header/load-command pages are read when inspecting a large application.
+template<class Source>
+Slice ParseArm64Slice(const Source& bytes) {
   const auto magic = Number(bytes, 0, 4, true);
   if (magic != 0xcafebabe && magic != 0xcafebabf) {
     CheckThin(bytes, 0, bytes.size());
@@ -104,6 +110,9 @@ Slice Arm64Slice(const Bytes& bytes) {
   return selected;
 }
 
+Slice Arm64Slice(const Bytes& bytes) { return ParseArm64Slice(bytes); }
+Slice Arm64Slice(const BinaryFile& file) { return ParseArm64Slice(file); }
+
 void WriteAtomic(const fs::path& destination, const std::string& text) {
   fs::create_directories(destination.parent_path());
   // mkstemp avoids clobbering another writer's temporary file. Rename publishes
@@ -126,18 +135,22 @@ void WriteAtomic(const fs::path& destination, const std::string& text) {
 }
 
 Project Import(const fs::path& file, const fs::path& workspace) {
-  const auto original = ReadBytes(file);
-  const auto slice = Arm64Slice(original);
-  const auto hash = Sha256(original);
+  const BinaryFile original(file);
+  Arm64Slice(original); // Reject unsupported formats before copying a large file.
+  const auto hash = original.Hash(0, original.size());
   Project p{fs::absolute(workspace) / hash, {}};
   if (fs::exists(p.directory / "project.json")) return LoadProject(p.directory);
-  Bytes selected(original.begin() + slice.offset, original.begin() + slice.offset + slice.size);
+  // Copy and verify the original first. Extract from that stable snapshot rather
+  // than rereading the user's application while it might be updating on disk.
+  original.CopyAtomic(p.directory / "original.bin", 0, original.size(), hash);
+  const BinaryFile snapshot(p.directory / "original.bin");
+  const auto slice = Arm64Slice(snapshot);
+  const auto sliceHash = snapshot.Hash(slice.offset, slice.size);
+  snapshot.CopyAtomic(p.directory / "arm64.macho", slice.offset, slice.size, sliceHash);
   p.metadata = {{"schema", "indago.mac-project.v1"}, {"name", file.filename().string()},
       {"architecture", "arm64"}, {"format", "Mach-O"}, {"sha256", hash},
-      {"slice_sha256", Sha256(selected)}, {"slice_offset", slice.offset},
+      {"slice_sha256", sliceHash}, {"slice_offset", slice.offset},
       {"slice_size", slice.size}, {"universal", slice.universal}, {"target_executed", false}};
-  WriteAtomic(p.directory / "original.bin", std::string(original.begin(), original.end()));
-  WriteAtomic(p.directory / "arm64.macho", std::string(selected.begin(), selected.end()));
   WriteAtomic(p.directory / "notes.md", "# Analysis notes\n\n");
   WriteAtomic(p.directory / "project.json", p.metadata.dump(2));
   return p;
@@ -148,13 +161,14 @@ Project LoadProject(const fs::path& directory) {
   Project p{fs::absolute(directory), Json::parse(data)};
   if (p.metadata.at("schema") != "indago.mac-project.v1" || p.metadata.at("architecture") != "arm64")
     throw std::runtime_error("Unsupported project schema or architecture.");
-  const auto original = ReadBytes(directory / "original.bin");
+  const BinaryFile original(directory / "original.bin");
   const auto slice = Arm64Slice(original);
-  const auto selected = ReadBytes(directory / "arm64.macho");
-  if (Sha256(original) != p.metadata.at("sha256").get<std::string>() ||
-      Sha256(selected) != p.metadata.at("slice_sha256").get<std::string>() ||
+  const BinaryFile selected(directory / "arm64.macho");
+  const auto selectedHash = selected.Hash(0, selected.size());
+  if (original.Hash(0, original.size()) != p.metadata.at("sha256").get<std::string>() ||
+      selectedHash != p.metadata.at("slice_sha256").get<std::string>() ||
       slice.offset != p.metadata.at("slice_offset") || slice.size != p.metadata.at("slice_size") ||
-      selected != Bytes(original.begin() + slice.offset, original.begin() + slice.offset + slice.size))
+      selected.size() != slice.size || original.Hash(slice.offset, slice.size) != selectedHash)
     throw std::runtime_error("Project input integrity check failed.");
   return p;
 }

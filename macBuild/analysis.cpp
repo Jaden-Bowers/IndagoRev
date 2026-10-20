@@ -1,4 +1,5 @@
 #include "analysis.hpp"
+#include "file_io.hpp"
 #include <chrono>
 #include <csignal>
 #include <cstring>
@@ -94,8 +95,8 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
   const auto script = tools.scripts / "MacExport.java";
   if (!fs::exists(utility) || access(tools.java.c_str(), X_OK) || access(decompiler.c_str(), X_OK))
     throw std::runtime_error("Analysis tools missing. Run macBuild/setup.sh first.");
-  Arm64Slice(ReadBytes(tools.java));
-  Arm64Slice(ReadBytes(decompiler));
+  Arm64Slice(BinaryFile(tools.java));
+  Arm64Slice(BinaryFile(decompiler));
   const auto scriptHash = Sha256(ReadBytes(script));
   const auto propertiesHash = Sha256(ReadBytes(tools.ghidra / "Ghidra/application.properties"));
   auto runName = (p.directory / "run-XXXXXX").string();
