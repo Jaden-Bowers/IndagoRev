@@ -63,6 +63,13 @@ void DrawSettings() {
   ImGui::SliderFloat("Text size", &ImGui::GetStyle().FontSizeBase, 13, 20, "%.0f");
   if (live) {
     Wrapped("Native macOS ARM64 / Ghidra static analysis. Notes and evidence are saved in the workspace. AI and live annotations are not connected.");
+    ImGui::BeginDisabled(live->busy);
+    ImGui::SetNextItemWidth(160);
+    ImGui::InputInt("Analysis time (seconds)", &live->analysisSeconds);
+    ImGui::EndDisabled();
+    if (live->analysisSeconds < 1)
+      ImGui::TextUnformatted("Enter at least 1 second before starting analysis.");
+    Wrapped("Applies to the next analysis in this session. The worker gets another two minutes to export results. You can still cancel a run.");
     if (ImGui::Button("Close settings")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
     return;
@@ -95,7 +102,7 @@ void DrawHeader() {
     ImGui::BeginDisabled(live->busy || model.Dirty());
     if (ImGui::Button("Open app or ARM64 file...")) live->open();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!live->loaded);
+    ImGui::BeginDisabled(!live->loaded || live->analysisSeconds < 1);
     if (ImGui::Button("Analyze again")) live->analyze();
     ImGui::EndDisabled();
     ImGui::EndDisabled();

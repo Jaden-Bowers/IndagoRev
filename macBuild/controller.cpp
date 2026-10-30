@@ -74,9 +74,15 @@ void Controller::StartAnalysis() {
   cancelled = false;
   const Project snapshot = *project;
   try {
-    pending = std::async(std::launch::async, [this, snapshot] { return Analyze(snapshot, tools, cancelled); });
+    const auto timing = TimingForSeconds(view.analysisSeconds);
+    // Capture the chosen timing by value; editing UI state cannot change a run
+    // already in progress or introduce a cross-thread read of the settings.
+    pending = std::async(std::launch::async, [this, snapshot, timing] {
+      return Analyze(snapshot, tools, cancelled, timing);
+    });
     view.busy = true;
-    state.Log("Ghidra is analyzing the saved ARM64 slice. Previous evidence remains readable.");
+    state.Log("Ghidra is analyzing the saved ARM64 slice with a " +
+        std::to_string(timing.analysisSeconds) + "-second analysis limit. Previous evidence remains readable.");
   } catch (const std::exception& error) { state.Log(std::string("Could not start analysis: ") + error.what()); }
 }
 
@@ -126,8 +132,11 @@ void Controller::ShowReport(const Json& report) {
       "\n" + (state.partial ? "Partial export; inspect function diagnostics." : "Export completed within configured limits.") +
       "\nNo target execution. Mapping is by containing function, not exact source line.\nSaved evidence: " + project->directory.string();
   view.evidence += "\nCPU variant: " + project->metadata.value("isa_variant", "arm64");
+  // Reports created before configurable timing used the original 60 seconds.
+  const auto analysisSeconds = report.value("analysis_timeout_seconds", 60u);
+  view.evidence += "\nAnalysis time limit: " + std::to_string(analysisSeconds) + " seconds.";
   if (report.value("analysis_timed_out", false))
-    view.evidence += "\nGhidra reached the 60-second analysis limit; results are incomplete.";
+    view.evidence += "\nGhidra reached that analysis time limit; results are incomplete.";
   if (report.value("functions_truncated", false))
     view.evidence += "\nOnly the first 256 functions were exported.";
   if (project->metadata.contains("bundle_executable"))

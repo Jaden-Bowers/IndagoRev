@@ -6,6 +6,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <limits>
 #include <thread>
 #include <unistd.h>
 
@@ -169,12 +170,38 @@ int main(int argc, char** argv) {
       REQUIRE(model.RecallHistory(-1, "") == "goto _check_result");
       REQUIRE(model.RecallHistory(1, "") == "explain");
       REQUIRE(model.RecallHistory(1, "") == "draft");
+      // Exercise the real settings control, then verify the next Ghidra run
+      // saves the chosen deadline and extends the outer worker deadline too.
+      controller.view.analysisSeconds = 299;
+      Click("Settings");
+      Click("+");
+      REQUIRE(controller.view.analysisSeconds == 300);
+      Click("Close settings");
+      Click("Analyze again");
+      REQUIRE(controller.view.busy);
+      Wait(controller);
+      const auto longer = macbuild::LoadAnalysis(p);
+      REQUIRE(longer.at("analysis_timeout_seconds") == 300);
+      REQUIRE(longer.at("worker_timeout_seconds") == 420);
+      REQUIRE(!model.functions.empty());
+      REQUIRE(controller.view.evidence.find("300 seconds") != std::string::npos);
+      // Invalid settings fail before a worker starts and preserve prior results.
+      controller.view.analysisSeconds = 0;
+      controller.StartAnalysis();
+      REQUIRE(!controller.view.busy);
+      REQUIRE(model.status.find("at least 1 second") != std::string::npos);
+      REQUIRE(macbuild::LoadAnalysis(p) == longer);
+      controller.view.analysisSeconds = 300;
+      Rejected([] { macbuild::TimingForSeconds(-1); });
+      REQUIRE(macbuild::TimingForSeconds(60).workerSeconds == 180);
+      REQUIRE(macbuild::TimingForSeconds(std::numeric_limits<int>::max()).workerSeconds >
+              static_cast<unsigned>(std::numeric_limits<int>::max()));
       ImGui::DestroyContext();
 
       // Both timeout and cancellation must leave the last successful evidence.
       const auto previous = macbuild::LoadAnalysis(p);
       std::atomic_bool cancel{false};
-      Rejected([&] { macbuild::Analyze(p, macbuild::DefaultTools(), cancel, 0); });
+      Rejected([&] { macbuild::Analyze(p, macbuild::DefaultTools(), cancel, {60, 0}); });
       REQUIRE(macbuild::LoadAnalysis(p) == previous);
       controller.StartAnalysis();
       REQUIRE(controller.view.busy);
@@ -194,6 +221,8 @@ int main(int argc, char** argv) {
       REQUIRE(model.notes == "Persistent note about a real ARM64 function.\n");
       REQUIRE(model.functions.size() >= 3 && model.references.empty());
       REQUIRE(reopened.view.evidence.find("Original SHA-256") != std::string::npos);
+      REQUIRE(reopened.view.analysisSeconds == 60); // Preferences are session-local.
+      REQUIRE(reopened.view.evidence.find("300 seconds") != std::string::npos);
       macbuild::WriteAtomic(root / "not-a-program", "not Mach-O");
       const auto name = reopened.view.target;
       reopened.Open(root / "not-a-program");

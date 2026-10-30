@@ -24,6 +24,10 @@ In the application:
    evidence return when you reopen the same file or restart the application.
 5. Use **Analyze again** to refresh results, or **Cancel analysis** to stop the
    tool. Previous successful evidence remains readable after a failed/cancelled run.
+6. For a longer run, open **Settings**, change **Analysis time (seconds)**, close
+   settings and click **Analyze again**. For example, 300 allows five minutes of
+   automatic analysis. This preference lasts for the current session; each saved
+   report records the time limit used to produce it.
 
 The selected program is never executed. The app launches only the analysis tools.
 AI replies and decompiler edits are explicitly unavailable in this milestone.
@@ -144,8 +148,11 @@ packaging are later work.
   integrity checks; Ghidra analysis runs in the background.
 - Export limits: 256 functions, 2,048 instructions per
   function, 32,768 pseudocode characters per function. Truncation is explicit.
-- Ghidra automatic analysis: 60-second limit; decompilation: 10 seconds per
-  function; total worker: 180 seconds. Java heap: 2 GiB. Successful report files
+- Ghidra automatic analysis: configurable in GUI Settings, default 60 seconds;
+  decompilation: 10 seconds per function. The GUI worker deadline is the chosen
+  analysis time plus 120 seconds for startup/export. Longer runs remain cancellable;
+  function/output limits are unchanged in this first settings increment.
+  Java heap: 2 GiB. Successful report files
   are limited to 16 MiB; these bounds do not guarantee complete binary analysis.
 - Notes: 1 MiB, saved explicitly. Function references are session-local and
   expire when analysis is refreshed. UI theme/layout preferences are session-local.

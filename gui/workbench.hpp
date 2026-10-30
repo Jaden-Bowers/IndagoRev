@@ -8,6 +8,7 @@ namespace mock { class Workbench; }
 // The provider owns tool execution/storage; these panels only draw its state.
 struct WorkbenchIntegration {
   bool busy = false, loaded = false;
+  int analysisSeconds = 60; // Applies to the next live run; lasts for this session.
   std::string target = "No ARM64 file open", producer, evidence;
   std::function<void()> tick, open, analyze, cancel, saveNotes;
   std::function<void(const std::string&)> execute;

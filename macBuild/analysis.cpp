@@ -87,8 +87,17 @@ Json Capabilities() {
       {"availability_is_qualification", false}, {"execution", false}, {"x64_targets", false}};
 }
 
+AnalysisTiming TimingForSeconds(int seconds) {
+  if (seconds < 1) throw std::runtime_error("Analysis time must be at least 1 second.");
+  // The UI uses a signed integer. Convert before adding, so even its largest
+  // positive value cannot overflow a signed int when adding export time.
+  const auto analysisSeconds = static_cast<unsigned>(seconds);
+  return {analysisSeconds, analysisSeconds + 120u};
+}
+
 Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool& cancel,
-             unsigned timeoutSeconds) {
+             AnalysisTiming timing) {
+  if (!timing.analysisSeconds) throw std::runtime_error("Analysis time must be at least 1 second.");
   const auto p = LoadProject(original.directory);
   const auto utility = tools.ghidra / "Ghidra/Framework/Utility/lib/Utility.jar";
   const auto decompiler = tools.ghidra / "Ghidra/Features/Decompiler/os/mac_arm_64/decompile";
@@ -111,10 +120,10 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
        "-Duser.home=" + (run / "home").string(), "-Djava.io.tmpdir=" + (run / "tmp").string(),
        "-cp", utility.string(), "ghidra.Ghidra", "ghidra.app.util.headless.AnalyzeHeadless",
        (run / "projects").string(), "analysis", "-import", (p.directory / "arm64.macho").string(),
-       "-analysisTimeoutPerFile", "60", "-max-cpu", "2", "-scriptPath", tools.scripts.string(),
+       "-analysisTimeoutPerFile", std::to_string(timing.analysisSeconds), "-max-cpu", "2", "-scriptPath", tools.scripts.string(),
        "-postScript", "MacExport.java", output.string(), "-deleteProject",
        "-log", (run / "ghidra.log").string(), "-scriptlog", (run / "script.log").string()},
-      run / "worker.log", cancel, timeoutSeconds);
+      run / "worker.log", cancel, timing.workerSeconds);
   if (cancel) throw std::runtime_error("Analysis cancelled; previous evidence retained.");
   auto report = Json::parse(Text(output));
   if (report.at("schema") != "indago.mac-analysis.v1" || report.at("architecture") != "AARCH64" ||
@@ -127,6 +136,10 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
   report["script_sha256"] = scriptHash;
   report["ghidra_properties_sha256"] = propertiesHash;
   report["target_executed"] = false;
+  // Keep the settings with the evidence; changing the next run's settings must
+  // not change how an older report explains a timeout.
+  report["analysis_timeout_seconds"] = timing.analysisSeconds;
+  report["worker_timeout_seconds"] = timing.workerSeconds;
   const auto document = report.dump(2);
   const auto hash = Sha256(Bytes(document.begin(), document.end()));
   WriteAtomic(p.directory / ("analysis-" + hash + ".json"), document);
