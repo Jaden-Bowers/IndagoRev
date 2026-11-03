@@ -126,7 +126,7 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
        "-cp", utility.string(), "ghidra.Ghidra", "ghidra.app.util.headless.AnalyzeHeadless",
        (run / "projects").string(), "analysis", "-import", (p.directory / "arm64.macho").string(),
        "-analysisTimeoutPerFile", std::to_string(settings.analysisSeconds), "-max-cpu", "2", "-scriptPath", tools.scripts.string(),
-       "-postScript", "MacExport.java", output.string(), "-deleteProject",
+       "-postScript", "MacExport.java", output.string(),
        "-log", (run / "ghidra.log").string(), "-scriptlog", (run / "script.log").string()},
       run / "worker.log", cancel, settings.workerSeconds);
   if (cancel) throw std::runtime_error("Analysis cancelled; previous evidence retained.");
@@ -146,6 +146,7 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
   report["analysis_timeout_seconds"] = settings.analysisSeconds;
   report["worker_timeout_seconds"] = settings.workerSeconds;
   report["java_heap_gib"] = settings.memoryGiB;
+  report["ghidra_run"] = run.filename().string();
   // Publish the immutable index before publishing the report that refers to it.
   // A cancellation or failed export must not replace the previous latest report.
   const BinaryFile index(run / "functions.json");
@@ -158,7 +159,8 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
   const auto hash = Sha256(Bytes(document.begin(), document.end()));
   WriteAtomic(p.directory / ("analysis-" + hash + ".json"), document);
   WriteAtomic(p.directory / "latest.json", Json{{"sha256", hash}}.dump());
-  // Native projects and compilation caches are disposable; reports stay intact.
+  // Keep the analyzed database for read-only, on-demand decompilation. Java's
+  // compilation caches and temporary files are still disposable.
   fs::remove_all(run / "home");
   fs::remove_all(run / "tmp");
   return report;
@@ -202,5 +204,84 @@ Json LoadFunctionIndex(const Project& p, const Json& report) {
       throw std::runtime_error("Invalid or duplicate function index entry.");
   }
   return index;
+}
+
+bool HasAnalysisDatabase(const Project& p, const Json& report) {
+  const auto run = report.value("ghidra_run", std::string{});
+  // A report may identify only a generated run directory inside its project.
+  if (run.size() != 10 || !run.starts_with("run-") ||
+      run.substr(4).find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != std::string::npos)
+    return false;
+  return fs::is_regular_file(p.directory / run / "projects/analysis.gpr") &&
+      fs::is_directory(p.directory / run / "projects/analysis.rep");
+}
+
+Json FetchFunction(const Project& original, const Json& report, const std::string& address,
+                   const Tools& tools, const std::atomic_bool& cancel, AnalysisSettings settings) {
+  if (cancel) throw std::runtime_error("Function loading cancelled.");
+  if (settings.memoryGiB < 1) throw std::runtime_error("Analysis memory must be at least 1 GiB.");
+  if (!address.starts_with("0x") || address.size() <= 2 || address.size() > 18 ||
+      address.substr(2).find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
+    throw std::runtime_error("Select an internal function address.");
+  const auto p = LoadProject(original.directory);
+  if (report.at("input_sha256") != p.metadata.at("slice_sha256"))
+    throw std::runtime_error("Analysis belongs to a different input.");
+  const auto hashText = [](const std::string& text) { return Sha256(Bytes(text.begin(), text.end())); };
+  const auto analysisHash = hashText(report.dump());
+  const auto scriptHash = Sha256(ReadBytes(tools.scripts / "MacExport.java"));
+  const auto key = hashText(analysisHash + ":" + scriptHash + ":" + address + ":" + std::to_string(settings.memoryGiB));
+  const auto cache = p.directory / "function-cache" / (key + ".json");
+  const auto matches = [&](const Json& result) {
+    return result.at("schema") == "indago.mac-function.v1" &&
+        result.at("analysis_sha256") == analysisHash && result.at("script_sha256") == scriptHash &&
+        result.at("input_sha256") == p.metadata.at("slice_sha256") &&
+        result.at("function").at("address") == address && result.at("target_executed") == false;
+  };
+  if (fs::exists(cache)) {
+    try {
+      const auto envelope = Json::parse(Text(cache));
+      auto result = envelope.at("result");
+      if (envelope.at("sha256") == hashText(result.dump()) && matches(result)) {
+        result["cache_hit"] = true;
+        return result;
+      }
+    } catch (const std::exception&) { /* A damaged derived cache can be rebuilt. */ }
+  }
+  if (!HasAnalysisDatabase(p, report))
+    throw std::runtime_error("The saved analysis database is missing; analyze this program again.");
+  if (Sha256(ReadBytes(tools.ghidra / "Ghidra/application.properties")) != report.at("ghidra_properties_sha256").get<std::string>())
+    throw std::runtime_error("Ghidra version changed; analyze this program again.");
+  Arm64Slice(BinaryFile(tools.java));
+  Arm64Slice(BinaryFile(tools.ghidra / "Ghidra/Features/Decompiler/os/mac_arm_64/decompile"));
+  auto name = (p.directory / "function-XXXXXX").string();
+  if (!mkdtemp(name.data())) throw std::runtime_error("Could not create function workspace.");
+  const fs::path run = name;
+  fs::create_directories(run / "home");
+  fs::create_directories(run / "tmp");
+  const auto output = run / "function.json";
+  const auto database = p.directory / report.at("ghidra_run").get<std::string>() / "projects";
+  // Process the exact saved program without repeating automatic analysis or
+  // modifying its database. Only this function is decompiled in this request.
+  Run({tools.java.string(), "-Xmx" + std::to_string(settings.memoryGiB) + "G",
+       "-Djava.system.class.loader=ghidra.GhidraClassLoader", "-Dfile.encoding=UTF-8",
+       "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED",
+       "-Duser.home=" + (run / "home").string(), "-Djava.io.tmpdir=" + (run / "tmp").string(),
+       "-cp", (tools.ghidra / "Ghidra/Framework/Utility/lib/Utility.jar").string(),
+       "ghidra.Ghidra", "ghidra.app.util.headless.AnalyzeHeadless", database.string(), "analysis",
+       "-process", "arm64.macho", "-noanalysis", "-readOnly", "-max-cpu", "2",
+       "-scriptPath", tools.scripts.string(), "-postScript", "MacExport.java", output.string(), address,
+       "-log", (run / "ghidra.log").string(), "-scriptlog", (run / "script.log").string()},
+      run / "worker.log", cancel, 120);
+  if (cancel) throw std::runtime_error("Function loading cancelled.");
+  auto result = Json::parse(Text(output));
+  result["analysis_sha256"] = analysisHash;
+  result["script_sha256"] = scriptHash;
+  result["java_heap_gib"] = settings.memoryGiB;
+  if (!matches(result)) throw std::runtime_error("Function result does not match the requested analysis/address.");
+  WriteAtomic(cache, Json{{"sha256", hashText(result.dump())}, {"result", result}}.dump());
+  fs::remove_all(run / "home");
+  fs::remove_all(run / "tmp");
+  result["cache_hit"] = false;
+  return result;
 }
 } // namespace macbuild

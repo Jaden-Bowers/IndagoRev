@@ -23,4 +23,9 @@ Json LoadAnalysis(const Project& project);
 // Read the complete index stored alongside the bounded detailed-code report.
 // Older reports fall back to the functions they originally exported.
 Json LoadFunctionIndex(const Project& project, const Json& report);
+bool HasAnalysisDatabase(const Project& project, const Json& report);
+// Loads one function from the retained Ghidra project, or its verified disk
+// cache. Cache identity includes the analysis revision, script and address.
+Json FetchFunction(const Project& project, const Json& report, const std::string& address,
+                   const Tools& tools, const std::atomic_bool& cancel, AnalysisSettings settings = {});
 } // namespace macbuild

@@ -31,10 +31,45 @@ public class MacExport extends HeadlessScript {
         return count;
     }
 
+    // The initial preview and on-demand requests share exactly the same export format.
+    private JsonObject exportFunction(Function f, DecompInterface decompiler) throws Exception {
+        JsonObject item = new JsonObject();
+        item.addProperty("name", f.getName());
+        item.addProperty("address", hex(f.getEntryPoint()));
+        item.addProperty("signature", f.getSignature().getPrototypeString());
+        DecompileResults result = decompiler.decompileFunction(f, 10, monitor);
+        boolean complete = result.decompileCompleted() && result.getDecompiledFunction() != null;
+        String code = complete ? result.getDecompiledFunction().getC() : "";
+        boolean truncated = code.length() > 32768;
+        item.addProperty("code", truncated ? code.substring(0, 32768) : code);
+        item.addProperty("decompile_ok", complete);
+        item.addProperty("code_truncated", truncated);
+        item.addProperty("diagnostic", result.getErrorMessage());
+        JsonArray assembly = new JsonArray();
+        InstructionIterator instructions = currentProgram.getListing().getInstructions(f.getBody(), true);
+        while (instructions.hasNext() && assembly.size() < 2048 && !monitor.isCancelled()) {
+            Instruction instruction = instructions.next();
+            JsonObject row = new JsonObject();
+            row.addProperty("address", hex(instruction.getAddress()));
+            row.addProperty("text", instruction.toString());
+            StringBuilder bytes = new StringBuilder();
+            for (byte value : instruction.getBytes()) bytes.append(String.format("%02x", value & 255));
+            row.addProperty("bytes", bytes.toString());
+            // This exporter has no token-to-address mapping. The UI must
+            // say "containing function", never invent exact line links.
+            row.addProperty("code_line", -1);
+            assembly.add(row);
+        }
+        boolean instructionsTruncated = instructions.hasNext();
+        item.add("assembly", assembly);
+        item.addProperty("assembly_truncated", instructionsTruncated);
+        return item;
+    }
+
     @Override
     public void run() throws Exception {
         String[] args = getScriptArgs();
-        if (args.length != 1) throw new IllegalArgumentException("Expected export filename");
+        if (args.length != 1 && args.length != 2) throw new IllegalArgumentException("Expected export filename and optional function address");
         String architecture = currentProgram.getLanguage().getProcessor().toString();
         if (!architecture.equals("AARCH64")) throw new IllegalArgumentException("ARM64 input required");
         JsonObject report = new JsonObject();
@@ -49,6 +84,24 @@ public class MacExport extends HeadlessScript {
         report.addProperty("input_sha256", currentProgram.getExecutableSHA256());
         report.addProperty("image_base", hex(currentProgram.getImageBase()));
         report.addProperty("analysis_timed_out", analysisTimeoutOccurred());
+        if (args.length == 2) {
+            // The launcher opens the saved program read-only with analysis off.
+            // A missing/external address must never silently select another function.
+            Function selected = getFunctionAt(toAddr(args[1]));
+            if (selected == null || selected.isExternal())
+                throw new IllegalArgumentException("No internal function at requested address");
+            DecompInterface decompiler = new DecompInterface();
+            try {
+                if (!decompiler.openProgram(currentProgram))
+                    throw new IllegalStateException(decompiler.getLastMessage());
+                report.addProperty("schema", "indago.mac-function.v1");
+                report.addProperty("target_executed", false);
+                report.add("function", exportFunction(selected, decompiler));
+                monitor.checkCancelled();
+                Files.writeString(Path.of(args[0]), new Gson().toJson(report), StandardCharsets.UTF_8);
+            } finally { decompiler.dispose(); }
+            return;
+        }
         boolean partial = analysisTimeoutOccurred();
         JsonArray functions = new JsonArray();
         DecompInterface decompiler = new DecompInterface();
@@ -59,37 +112,9 @@ public class MacExport extends HeadlessScript {
             while (iterator.hasNext() && functions.size() < 256 && !monitor.isCancelled()) {
                 Function f = iterator.next();
                 if (f.isExternal()) continue;
-                JsonObject item = new JsonObject();
-                item.addProperty("name", f.getName());
-                item.addProperty("address", hex(f.getEntryPoint()));
-                item.addProperty("signature", f.getSignature().getPrototypeString());
-                DecompileResults result = decompiler.decompileFunction(f, 10, monitor);
-                boolean complete = result.decompileCompleted() && result.getDecompiledFunction() != null;
-                String code = complete ? result.getDecompiledFunction().getC() : "";
-                boolean truncated = code.length() > 32768;
-                item.addProperty("code", truncated ? code.substring(0, 32768) : code);
-                item.addProperty("decompile_ok", complete);
-                item.addProperty("code_truncated", truncated);
-                item.addProperty("diagnostic", result.getErrorMessage());
-                JsonArray assembly = new JsonArray();
-                InstructionIterator instructions = currentProgram.getListing().getInstructions(f.getBody(), true);
-                while (instructions.hasNext() && assembly.size() < 2048 && !monitor.isCancelled()) {
-                    Instruction instruction = instructions.next();
-                    JsonObject row = new JsonObject();
-                    row.addProperty("address", hex(instruction.getAddress()));
-                    row.addProperty("text", instruction.toString());
-                    StringBuilder bytes = new StringBuilder();
-                    for (byte value : instruction.getBytes()) bytes.append(String.format("%02x", value & 255));
-                    row.addProperty("bytes", bytes.toString());
-                    // This exporter has no token-to-address mapping. The UI must
-                    // say "containing function", never invent exact line links.
-                    row.addProperty("code_line", -1);
-                    assembly.add(row);
-                }
-                boolean instructionsTruncated = instructions.hasNext();
-                item.add("assembly", assembly);
-                item.addProperty("assembly_truncated", instructionsTruncated);
-                partial |= !complete || truncated || instructionsTruncated;
+                JsonObject item = exportFunction(f, decompiler);
+                partial |= !item.get("decompile_ok").getAsBoolean() ||
+                    item.get("code_truncated").getAsBoolean() || item.get("assembly_truncated").getAsBoolean();
                 functions.add(item);
             }
             report.addProperty("functions_truncated", iterator.hasNext());

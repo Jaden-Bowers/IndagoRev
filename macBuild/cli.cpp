@@ -11,10 +11,15 @@ int main(int argc, char** argv) {
     else if (argc == 3 && std::string(argv[1]) == "analyze") {
       std::atomic_bool cancel{false};
       std::cout << macbuild::Analyze(macbuild::LoadProject(argv[2]), macbuild::DefaultTools(), cancel).dump(2) << '\n';
+    } else if (argc == 4 && std::string(argv[1]) == "function") {
+      std::atomic_bool cancel{false};
+      const auto project = macbuild::LoadProject(argv[2]);
+      std::cout << macbuild::FetchFunction(project, macbuild::LoadAnalysis(project), argv[3],
+          macbuild::DefaultTools(), cancel).dump(2) << '\n';
     } else if (argc == 3 && std::string(argv[1]) == "show")
       std::cout << macbuild::LoadProject(argv[2]).metadata.dump(2) << '\n';
     else {
-      std::cerr << "Usage: indago-mac capabilities | import FILE WORKSPACE | show PROJECT | analyze PROJECT\n";
+      std::cerr << "Usage: indago-mac capabilities | import FILE WORKSPACE | show PROJECT | analyze PROJECT | function PROJECT ADDRESS\n";
       return 2;
     }
   } catch (const std::exception& error) {

@@ -292,6 +292,29 @@ int main(int argc, char** argv) {
       REQUIRE(late != model.functions.end());
       const auto name = late->name, location = late->address;
       REQUIRE(std::distance(model.functions.begin(), late) >= 256);
+      REQUIRE(macbuild::HasAnalysisDatabase(project, report));
+      std::atomic_bool requestCancelled{false};
+      const auto detail = macbuild::FetchFunction(project, report, location,
+          macbuild::DefaultTools(), requestCancelled);
+      REQUIRE(detail.at("function").at("address") == location);
+      REQUIRE(detail.at("function").at("name") == name);
+      REQUIRE(detail.at("function").at("decompile_ok") == true);
+      REQUIRE(!detail.at("function").at("code").get<std::string>().empty());
+      REQUIRE(!detail.at("function").at("assembly").empty());
+      REQUIRE(detail.at("cache_hit") == false);
+      REQUIRE(macbuild::LoadAnalysis(project) == report); // Details never rewrite the index/report.
+      auto unavailable = macbuild::DefaultTools(); unavailable.java = root / "missing-java";
+      const auto cached = macbuild::FetchFunction(project, report, location, unavailable, requestCancelled);
+      REQUIRE(cached.at("cache_hit") == true); // Disk cache works without starting Java.
+      REQUIRE(cached.at("function") == detail.at("function"));
+      auto changedRevision = report; changedRevision["analysis_timeout_seconds"] = 999;
+      Rejected([&] { macbuild::FetchFunction(project, changedRevision, location, unavailable, requestCancelled); });
+      requestCancelled = true;
+      Rejected([&] { macbuild::FetchFunction(project, report, location, unavailable, requestCancelled); });
+      requestCancelled = false;
+      Rejected([&] { macbuild::FetchFunction(project, report, "EXTERNAL:00000001", unavailable, requestCancelled); });
+      auto missingDatabase = report; missingDatabase.erase("ghidra_run");
+      REQUIRE(!macbuild::HasAnalysisDatabase(project, missingDatabase));
       REQUIRE(model.Navigate(location));
       REQUIRE(model.instruction == -1 && model.line == 0);
       REQUIRE(model.functions[model.selected].code.empty());
