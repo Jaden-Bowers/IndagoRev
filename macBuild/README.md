@@ -28,6 +28,12 @@ In the application:
    settings and click **Analyze again**. For example, 300 allows five minutes of
    automatic analysis. This preference lasts for the current session; each saved
    report records the time limit used to produce it.
+7. **Settings → Analysis memory (GiB)** sets Ghidra's maximum Java heap for the
+   next run, starting at 2 GiB. Enter a positive whole number, then use **Analyze
+   again**. This preference lasts for the current session, is locked during a
+   run, and is recorded with the saved evidence. It limits the Java heap;
+   the GUI, Java's other allocations and the native decompiler use extra memory.
+   A value larger than the available memory does not guarantee analysis success.
 
 The selected program is never executed. The app launches only the analysis tools.
 AI replies and decompiler edits are explicitly unavailable in this milestone.
@@ -152,7 +158,8 @@ packaging are later work.
   decompilation: 10 seconds per function. The GUI worker deadline is the chosen
   analysis time plus 120 seconds for startup/export. Longer runs remain cancellable;
   function/output limits are unchanged in this first settings increment.
-  Java heap: 2 GiB. Successful report files
+  Java heap: configurable in GUI Settings, default 2 GiB. Reports record the
+  requested ceiling and the running JVM's maximum heap. Successful report files
   are limited to 16 MiB; these bounds do not guarantee complete binary analysis.
 - Notes: 1 MiB, saved explicitly. Function references are session-local and
   expire when analysis is refreshed. UI theme/layout preferences are session-local.

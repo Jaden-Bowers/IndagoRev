@@ -32,12 +32,13 @@ void Frame() {
   REQUIRE(ImGui::GetDrawData()->Valid);
   REQUIRE(ImGui::GetDrawData()->TotalVtxCount > 0);
 }
-void Click(const std::string& label) {
+void Click(const std::string& label, bool textField = false) {
   auto found = std::find_if(controls.begin(), controls.end(), [&](const auto& item) {
     return item.second.label == label;
   });
   if (found == controls.end()) throw std::runtime_error("Missing GUI control: " + label);
   auto point = found->second.rect.GetCenter();
+  if (textField) point.x = found->second.rect.Min.x + 15; // Avoid the field's label.
   auto& io = ImGui::GetIO();
   io.AddMousePosEvent(point.x, point.y); Frame();
   io.AddMouseButtonEvent(0, true); Frame();
@@ -125,6 +126,7 @@ int main(int argc, char** argv) {
       const auto report = macbuild::LoadAnalysis(p);
       REQUIRE(report.at("target_executed") == false);
       REQUIRE(report.at("architecture") == "AARCH64");
+      REQUIRE(report.at("java_heap_gib") == 2);
       auto function = std::find_if(model.functions.begin(), model.functions.end(), [](const auto& f) {
         return f.name == "_decode_buffer";
       });
@@ -176,13 +178,28 @@ int main(int argc, char** argv) {
       Click("Settings");
       Click("+");
       REQUIRE(controller.view.analysisSeconds == 300);
+      // Enter the memory value through the actual GUI, not just the view model.
+      Click("Analysis memory (GiB)", true);
+      io.AddInputCharactersUTF8("4"); Frame();
+      io.AddKeyEvent(ImGuiKey_Enter, true); Frame();
+      io.AddKeyEvent(ImGuiKey_Enter, false); Frame();
+      REQUIRE(controller.view.analysisMemoryGiB == 4);
       Click("Close settings");
       Click("Analyze again");
       REQUIRE(controller.view.busy);
+      // The in-flight worker owns a snapshot of its settings.
+      controller.view.analysisMemoryGiB = 8;
       Wait(controller);
       const auto longer = macbuild::LoadAnalysis(p);
       REQUIRE(longer.at("analysis_timeout_seconds") == 300);
       REQUIRE(longer.at("worker_timeout_seconds") == 420);
+      REQUIRE(longer.at("java_heap_gib") == 4);
+      // Verify Java actually received the increased heap ceiling, rather than
+      // merely echoing a setting into the saved JSON. Allow JVM alignment.
+      const auto heapBytes = longer.at("java_max_heap_bytes").get<std::uint64_t>();
+      REQUIRE(heapBytes > 3ULL * 1024 * 1024 * 1024);
+      REQUIRE(heapBytes <= 4ULL * 1024 * 1024 * 1024);
+      REQUIRE(controller.view.evidence.find("Java heap limit: 4 GiB") != std::string::npos);
       REQUIRE(!model.functions.empty());
       REQUIRE(controller.view.evidence.find("300 seconds") != std::string::npos);
       // Invalid settings fail before a worker starts and preserve prior results.
@@ -192,9 +209,21 @@ int main(int argc, char** argv) {
       REQUIRE(model.status.find("at least 1 second") != std::string::npos);
       REQUIRE(macbuild::LoadAnalysis(p) == longer);
       controller.view.analysisSeconds = 300;
-      Rejected([] { macbuild::TimingForSeconds(-1); });
-      REQUIRE(macbuild::TimingForSeconds(60).workerSeconds == 180);
-      REQUIRE(macbuild::TimingForSeconds(std::numeric_limits<int>::max()).workerSeconds >
+      for (const auto invalidMemory : {0, -1}) {
+        controller.view.analysisMemoryGiB = invalidMemory;
+        controller.StartAnalysis();
+        REQUIRE(!controller.view.busy);
+        REQUIRE(model.status.find("at least 1 GiB") != std::string::npos);
+        REQUIRE(macbuild::LoadAnalysis(p) == longer);
+        Rejected([&] { macbuild::SettingsForAnalysis(60, invalidMemory); });
+        std::atomic_bool unusedCancel{false};
+        Rejected([&] { macbuild::Analyze(p, macbuild::DefaultTools(), unusedCancel, {60, 180, invalidMemory}); });
+      }
+      controller.view.analysisMemoryGiB = 4;
+      REQUIRE(macbuild::SettingsForAnalysis(60, 1).memoryGiB == 1);
+      Rejected([] { macbuild::SettingsForAnalysis(-1); });
+      REQUIRE(macbuild::SettingsForAnalysis(60).workerSeconds == 180);
+      REQUIRE(macbuild::SettingsForAnalysis(std::numeric_limits<int>::max()).workerSeconds >
               static_cast<unsigned>(std::numeric_limits<int>::max()));
       ImGui::DestroyContext();
 
@@ -222,6 +251,8 @@ int main(int argc, char** argv) {
       REQUIRE(model.functions.size() >= 3 && model.references.empty());
       REQUIRE(reopened.view.evidence.find("Original SHA-256") != std::string::npos);
       REQUIRE(reopened.view.analysisSeconds == 60); // Preferences are session-local.
+      REQUIRE(reopened.view.analysisMemoryGiB == 2);
+      REQUIRE(reopened.view.evidence.find("Java heap limit: 4 GiB") != std::string::npos);
       REQUIRE(reopened.view.evidence.find("300 seconds") != std::string::npos);
       macbuild::WriteAtomic(root / "not-a-program", "not Mach-O");
       const auto name = reopened.view.target;

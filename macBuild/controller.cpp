@@ -74,15 +74,16 @@ void Controller::StartAnalysis() {
   cancelled = false;
   const Project snapshot = *project;
   try {
-    const auto timing = TimingForSeconds(view.analysisSeconds);
-    // Capture the chosen timing by value; editing UI state cannot change a run
+    const auto settings = SettingsForAnalysis(view.analysisSeconds, view.analysisMemoryGiB);
+    // Capture the chosen settings by value; editing UI state cannot change a run
     // already in progress or introduce a cross-thread read of the settings.
-    pending = std::async(std::launch::async, [this, snapshot, timing] {
-      return Analyze(snapshot, tools, cancelled, timing);
+    pending = std::async(std::launch::async, [this, snapshot, settings] {
+      return Analyze(snapshot, tools, cancelled, settings);
     });
     view.busy = true;
     state.Log("Ghidra is analyzing the saved ARM64 slice with a " +
-        std::to_string(timing.analysisSeconds) + "-second analysis limit. Previous evidence remains readable.");
+        std::to_string(settings.analysisSeconds) + "-second analysis limit and " +
+        std::to_string(settings.memoryGiB) + " GiB Java heap limit. Previous evidence remains readable.");
   } catch (const std::exception& error) { state.Log(std::string("Could not start analysis: ") + error.what()); }
 }
 
@@ -135,6 +136,9 @@ void Controller::ShowReport(const Json& report) {
   // Reports created before configurable timing used the original 60 seconds.
   const auto analysisSeconds = report.value("analysis_timeout_seconds", 60u);
   view.evidence += "\nAnalysis time limit: " + std::to_string(analysisSeconds) + " seconds.";
+  // Older reports used the fixed 2 GiB setting. Display the saved run's value,
+  // even after the user changes settings or restarts the application.
+  view.evidence += "\nJava heap limit: " + std::to_string(report.value("java_heap_gib", 2)) + " GiB.";
   if (report.value("analysis_timed_out", false))
     view.evidence += "\nGhidra reached that analysis time limit; results are incomplete.";
   if (report.value("functions_truncated", false))

@@ -24,6 +24,9 @@ public class MacExport extends HeadlessScript {
         report.addProperty("language", currentProgram.getLanguageID().toString());
         report.addProperty("compiler", currentProgram.getCompilerSpec().getCompilerSpecID().toString());
         report.addProperty("ghidra_version", Application.getApplicationVersion());
+        // Report what the running JVM actually allows, independently of the
+        // requested setting recorded by the launcher. This is not current usage.
+        report.addProperty("java_max_heap_bytes", Runtime.getRuntime().maxMemory());
         report.addProperty("input_sha256", currentProgram.getExecutableSHA256());
         report.addProperty("image_base", hex(currentProgram.getImageBase()));
         report.addProperty("analysis_timed_out", analysisTimeoutOccurred());

@@ -87,17 +87,19 @@ Json Capabilities() {
       {"availability_is_qualification", false}, {"execution", false}, {"x64_targets", false}};
 }
 
-AnalysisTiming TimingForSeconds(int seconds) {
+AnalysisSettings SettingsForAnalysis(int seconds, int memoryGiB) {
   if (seconds < 1) throw std::runtime_error("Analysis time must be at least 1 second.");
+  if (memoryGiB < 1) throw std::runtime_error("Analysis memory must be at least 1 GiB.");
   // The UI uses a signed integer. Convert before adding, so even its largest
   // positive value cannot overflow a signed int when adding export time.
   const auto analysisSeconds = static_cast<unsigned>(seconds);
-  return {analysisSeconds, analysisSeconds + 120u};
+  return {analysisSeconds, analysisSeconds + 120u, memoryGiB};
 }
 
 Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool& cancel,
-             AnalysisTiming timing) {
-  if (!timing.analysisSeconds) throw std::runtime_error("Analysis time must be at least 1 second.");
+             AnalysisSettings settings) {
+  if (!settings.analysisSeconds) throw std::runtime_error("Analysis time must be at least 1 second.");
+  if (settings.memoryGiB < 1) throw std::runtime_error("Analysis memory must be at least 1 GiB.");
   const auto p = LoadProject(original.directory);
   const auto utility = tools.ghidra / "Ghidra/Framework/Utility/lib/Utility.jar";
   const auto decompiler = tools.ghidra / "Ghidra/Features/Decompiler/os/mac_arm_64/decompile";
@@ -115,15 +117,17 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
   fs::create_directories(run / "projects");
   fs::create_directories(run / "tmp");
   const auto output = run / "export.json";
-  Run({tools.java.string(), "-Xmx2G", "-Djava.system.class.loader=ghidra.GhidraClassLoader",
+  // Pass Java's heap ceiling as one argument, without converting GiB to a
+  // potentially overflowing byte count or allocating that memory in the GUI.
+  Run({tools.java.string(), "-Xmx" + std::to_string(settings.memoryGiB) + "G", "-Djava.system.class.loader=ghidra.GhidraClassLoader",
        "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED",
        "-Duser.home=" + (run / "home").string(), "-Djava.io.tmpdir=" + (run / "tmp").string(),
        "-cp", utility.string(), "ghidra.Ghidra", "ghidra.app.util.headless.AnalyzeHeadless",
        (run / "projects").string(), "analysis", "-import", (p.directory / "arm64.macho").string(),
-       "-analysisTimeoutPerFile", std::to_string(timing.analysisSeconds), "-max-cpu", "2", "-scriptPath", tools.scripts.string(),
+       "-analysisTimeoutPerFile", std::to_string(settings.analysisSeconds), "-max-cpu", "2", "-scriptPath", tools.scripts.string(),
        "-postScript", "MacExport.java", output.string(), "-deleteProject",
        "-log", (run / "ghidra.log").string(), "-scriptlog", (run / "script.log").string()},
-      run / "worker.log", cancel, timing.workerSeconds);
+      run / "worker.log", cancel, settings.workerSeconds);
   if (cancel) throw std::runtime_error("Analysis cancelled; previous evidence retained.");
   auto report = Json::parse(Text(output));
   if (report.at("schema") != "indago.mac-analysis.v1" || report.at("architecture") != "AARCH64" ||
@@ -138,8 +142,9 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
   report["target_executed"] = false;
   // Keep the settings with the evidence; changing the next run's settings must
   // not change how an older report explains a timeout.
-  report["analysis_timeout_seconds"] = timing.analysisSeconds;
-  report["worker_timeout_seconds"] = timing.workerSeconds;
+  report["analysis_timeout_seconds"] = settings.analysisSeconds;
+  report["worker_timeout_seconds"] = settings.workerSeconds;
+  report["java_heap_gib"] = settings.memoryGiB;
   const auto document = report.dump(2);
   const auto hash = Sha256(Bytes(document.begin(), document.end()));
   WriteAtomic(p.directory / ("analysis-" + hash + ".json"), document);

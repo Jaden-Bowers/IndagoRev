@@ -66,9 +66,15 @@ void DrawSettings() {
     ImGui::BeginDisabled(live->busy);
     ImGui::SetNextItemWidth(160);
     ImGui::InputInt("Analysis time (seconds)", &live->analysisSeconds);
+    ImGui::SetNextItemWidth(160);
+    ImGui::InputInt("Analysis memory (GiB)", &live->analysisMemoryGiB, 0, 0,
+                    ImGuiInputTextFlags_AutoSelectAll);
     ImGui::EndDisabled();
     if (live->analysisSeconds < 1)
       ImGui::TextUnformatted("Enter at least 1 second before starting analysis.");
+    if (live->analysisMemoryGiB < 1)
+      ImGui::TextUnformatted("Enter at least 1 GiB before starting analysis.");
+    Wrapped("Memory sets the maximum Java heap. The GUI and native analysis tools use additional memory.");
     Wrapped("Applies to the next analysis in this session. The worker gets another two minutes to export results. You can still cancel a run.");
     if (ImGui::Button("Close settings")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
@@ -102,7 +108,7 @@ void DrawHeader() {
     ImGui::BeginDisabled(live->busy || model.Dirty());
     if (ImGui::Button("Open app or ARM64 file...")) live->open();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!live->loaded || live->analysisSeconds < 1);
+    ImGui::BeginDisabled(!live->loaded || live->analysisSeconds < 1 || live->analysisMemoryGiB < 1);
     if (ImGui::Button("Analyze again")) live->analyze();
     ImGui::EndDisabled();
     ImGui::EndDisabled();
