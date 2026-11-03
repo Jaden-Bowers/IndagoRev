@@ -14,3 +14,4 @@ function(add_anti_dynamic_fixture name)
 endfunction()
 
 add_anti_dynamic_fixture(ptrace_guard)
+add_anti_dynamic_fixture(tracer_status)

@@ -29,3 +29,9 @@ policy, seccomp, or another restriction; this is reported as unavailable (77),
 not conclusive debugger detection. A successful first call should make the
 second fail with EPERM; two successes indicate emulated or altered behavior.
 The parent never invokes the calculation on its unavailable path.
+
+`indago_anti_tracer_status` reads `Pid` and `TracerPid` from `/proc/self/status`
+before and after a bounded record transformation. A nonzero tracer blocks the
+payload result with exit 10, unless `--observe` is supplied. Missing procfs is
+unavailable (77); malformed records fail (1). The snapshots have a race window
+and are an inspection exercise, not proof that instrumentation is absent.
