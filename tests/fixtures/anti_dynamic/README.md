@@ -48,3 +48,11 @@ monotonic clock. Any sample above `--limit-ms N` gates the final digest (10).
 The default is 250 ms; `--limit-ms 0` exercises detection and `--observe` permits
 the digest despite it. Scheduling, host load, and instrumentation can all cause
 threshold crossings; timing alone does not establish debugger presence.
+
+`indago_anti_signal_guard` installs handlers, temporarily unblocks its two probe
+signals, and raises SIGUSR1/SIGTRAP twice in a known order. Signal suppression
+changes the handler counters or delivery order and gates the digest (10).
+Handlers and the original mask are restored before completion. In GDB, use
+`handle SIGUSR1 nostop noprint pass` and `handle SIGTRAP nostop noprint pass`
+for normal delivery; suppressing either exercises the changed-delivery branch.
+SIGTRAP here comes from `raise`, not an architecture-specific breakpoint opcode.
