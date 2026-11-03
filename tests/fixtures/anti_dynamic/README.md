@@ -14,12 +14,18 @@ Generated ELF binaries and debug information remain in ignored `out/`. Sources
 are committed; generated binaries are reproducible build artifacts. Compile with
 optimizations disabled to preserve inspection points and intermediate values.
 
-| Target suffix | Technique |
-| --- | --- |
-| `ptrace_guard` | A disposable child calls `PTRACE_TRACEME` twice; the parent decodes its exit status. |
+| Target suffix | Source lines | Technique |
+| --- | --- | --- |
+| `ptrace_guard` | 186 | Two `PTRACE_TRACEME` calls in a disposable child. |
+| `tracer_status` | 186 | `/proc/self/status` tracer checks around a calculation. |
+| `encrypted_records` | 185 | Transient string decryption, checksum, re-encryption, and erasure. |
+| `timing_guard` | 179 | Three monotonic timing checks around volatile loops. |
+| `signal_guard` | 181 | SIGUSR1/SIGTRAP delivery counters and ordering. |
+| `encrypted_code` | 194 | Runtime code decryption with RW/RX permission transitions. |
 
-All fixtures accept `--observe` to continue the calculation after a detected
-obstacle, and `--help`. Exit codes: 0 completed, 1 system/internal error,
+All fixtures accept `--help` and `--observe`. In guard fixtures, observation
+mode continues the calculation after a detected obstacle; in encryption
+fixtures, it prints intermediate decoded information. Exit codes: 0 completed, 1 system/internal error,
 2 invalid arguments, 10 analysis obstacle detected, 77 unavailable capability.
 Observation mode does not hide system errors or unavailable capabilities.
 
@@ -56,3 +62,37 @@ Handlers and the original mask are restored before completion. In GDB, use
 `handle SIGUSR1 nostop noprint pass` and `handle SIGTRAP nostop noprint pass`
 for normal delivery; suppressing either exercises the changed-delivery branch.
 SIGTRAP here comes from `raise`, not an architecture-specific breakpoint opcode.
+
+`indago_anti_encrypted_code` decodes a 13-byte Linux x86-64 SysV function that
+returns `7 * input + 3`, checks its checksum, and runs four fixed inputs. Memory
+transitions RW to RX to RW, then is re-encoded, compared, wiped, and unmapped.
+No page is simultaneously writable and executable. `--observe` prints the
+plaintext checksum. Other architectures and denied executable mappings return
+77. This is an explicit runtime code discovery fixture; the fixed bytes are
+reversible obfuscation. ENDBR64 supports indirect branch tracking environments.
+
+## Smoke checks
+
+Run the bounded subprocess checks after building (Python 3.10+):
+
+```sh
+python3 tests/fixtures/anti_dynamic/smoke.py out/anti-dynamic-fixtures
+```
+
+The runner checks help and invalid arguments, fixed payload digests, encryption
+round trips, all four decoded function results, signal ordering, and timing
+threshold gating with and without observation mode. Every process has a
+15-second timeout. Capability failures (77) are reported separately and do not
+count as successful payload checks. Other failures, including crashes, fail the
+runner. No tests run implicitly during the build.
+
+To also exercise debugger-dependent branches, on a host that permits ptrace:
+
+```sh
+python3 tests/fixtures/anti_dynamic/smoke.py out/anti-dynamic-fixtures --gdb
+```
+
+This requires GDB and checks a nonzero TracerPid, strict gating, observation
+mode, and suppressed SIGTRAP delivery. A debugger startup failure fails the
+explicit `--gdb` run. Plaintext validation and timing thresholds are fixture
+behavior, not a claim of robust protection against analysis tools.
