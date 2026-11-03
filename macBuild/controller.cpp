@@ -8,6 +8,25 @@ std::string ReadText(const fs::path& file, std::size_t limit = 1024 * 1024) {
   const auto bytes = ReadBytes(file, limit);
   return {bytes.begin(), bytes.end()};
 }
+void ApplyFunction(mock::Function& f, const Json& item) {
+  f.code.clear(); f.assembly.clear();
+  f.name = item.at("name").get<std::string>();
+  f.address = item.at("address").get<std::string>();
+  f.signature = item.at("signature").get<std::string>();
+  f.explanation = item.at("decompile_ok").get<bool>() ? "Ghidra decompilation completed." : "Ghidra decompilation failed.";
+  const auto diagnostic = item.value("diagnostic", std::string{});
+  if (!diagnostic.empty()) f.explanation += "\n" + diagnostic;
+  if (item.at("code_truncated").get<bool>()) f.explanation += "\nPseudocode truncated at the export limit.";
+  if (item.at("assembly_truncated").get<bool>()) f.explanation += "\nAssembly truncated at the export limit.";
+  std::istringstream lines(item.at("code").get<std::string>());
+  std::string line;
+  while (std::getline(lines, line)) f.code.push_back(line);
+  if (f.code.empty()) f.code.push_back("// No pseudocode available. See evidence diagnostics.");
+  for (const auto& row : item.at("assembly"))
+    f.assembly.push_back({row.at("address").get<std::string>(), row.at("text").get<std::string>(), -1});
+  f.detailsAvailable = true;
+}
+
 }
 Controller::Controller(mock::Workbench& model, fs::path folder, Tools settings)
     : state(model), workspace(fs::absolute(folder)), tools(std::move(settings)) {
@@ -20,7 +39,10 @@ Controller::Controller(mock::Workbench& model, fs::path folder, Tools settings)
   view.producer = "Ghidra 12.0.3";
   view.tick = [this] { Tick(); };
   view.analyze = [this] { StartAnalysis(); };
-  view.cancel = [this] { cancelled = true; state.Log("Cancelling analysis..."); };
+  view.cancel = [this] { cancelled = true; state.Log(view.loadingDetails ? "Cancelling code loading..." : "Cancelling analysis..."); };
+  view.retryFunction = [this] {
+    if (!view.busy) { attemptedAddress.clear(); LoadSelectedFunction(); }
+  };
   view.saveNotes = [this] { SaveNotes(); };
   view.execute = [this](const std::string& command) { Execute(command); };
   state.Log("Open a .app or ARM64 Mach-O file. Analysis never executes the selected program.");
@@ -36,6 +58,8 @@ Controller::~Controller() {
 void Controller::ShowProject(Project next) {
   std::string notes = ReadText(next.directory / "notes.md");
   project = std::move(next);
+  activeReport = Json{};
+  attemptedAddress.clear();
   state.notes = state.savedNotes = std::move(notes);
   state.functions.clear(); state.references.clear(); state.showNotes = false;
   state.selected = state.line = state.anchor = 0; state.instruction = -1;
@@ -89,13 +113,88 @@ void Controller::StartAnalysis() {
 }
 
 void Controller::Tick() {
-  if (!view.busy || pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-  view.busy = false;
+  if (view.busy) {
+    // Only one worker touches the saved database at a time. A new selection
+    // cancels an obsolete detail request and starts after that worker is reaped.
+    if (view.loadingDetails && !preparingDatabase && !state.functions.empty() &&
+        state.functions[state.selected].address != requestedAddress) cancelled = true;
+    if (pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    const bool details = view.loadingDetails;
+    view.busy = view.loadingDetails = false;
+    std::string failure;
+    try {
+      auto result = pending.get();
+      if (!details) {
+        ShowReport(result);
+        state.Log(std::string(state.partial ? "Partial analysis: " : "Analysis complete: ") +
+                  std::to_string(state.functions.size()) + " functions. Target was not executed.");
+      } else if (requestRevision == state.revision) {
+        if (result.contains("analysis")) ShowReport(result.at("analysis"));
+        attemptedAddress = requestedAddress;
+        if (result.contains("error")) failure = result.at("error").get<std::string>();
+        else {
+          // Match by address, never by whichever row happens to be selected now.
+          for (auto& function : state.functions) {
+            if (function.address != requestedAddress) continue;
+            ApplyFunction(function, result.at("detail").at("function"));
+            if (state.functions[state.selected].address == requestedAddress) {
+              state.SelectLine(0);
+              state.Log("Code loaded for " + function.name +
+                  (result.at("detail").value("cache_hit", false) ? " from saved cache." : "."));
+            }
+            break;
+          }
+        }
+      }
+    } catch (const std::exception& error) { failure = error.what(); }
+    if (!failure.empty()) {
+      if (details) {
+        for (auto& function : state.functions)
+          if (function.address == requestedAddress && !function.detailsAvailable)
+            function.explanation = "Code loading stopped: " + failure;
+        if (!state.functions.empty() && state.functions[state.selected].address == requestedAddress)
+          state.Log("Code loading stopped: " + failure);
+      } else state.Log("Analysis stopped: " + failure);
+    }
+  }
+  LoadSelectedFunction();
+}
+
+void Controller::LoadSelectedFunction() {
+  if (!project || view.busy || activeReport.is_null() || state.functions.empty() || state.showNotes) return;
+  auto& function = state.functions[state.selected];
+  if (function.detailsAvailable || function.external) { attemptedAddress.clear(); return; }
+  if (function.address == attemptedAddress) return;
+  attemptedAddress = requestedAddress = function.address;
+  requestRevision = state.revision;
   try {
-    ShowReport(pending.get());
-    state.Log(std::string(state.partial ? "Partial analysis: " : "Analysis complete: ") +
-              std::to_string(state.functions.size()) + " functions. Target was not executed.");
-  } catch (const std::exception& error) { state.Log(std::string("Analysis stopped: ") + error.what()); }
+    const auto settings = SettingsForAnalysis(view.analysisSeconds, view.analysisMemoryGiB);
+    const Project snapshot = *project;
+    const Json report = activeReport;
+    const auto address = requestedAddress;
+    preparingDatabase = !HasAnalysisDatabase(snapshot, report);
+    cancelled = false;
+    pending = std::async(std::launch::async, [this, snapshot, report, address, settings] {
+      auto source = report;
+      Json response = Json::object();
+      // Older releases deleted their Ghidra databases. Rebuild once on demand
+      // so existing projects gain code loading without losing their notes.
+      if (!HasAnalysisDatabase(snapshot, source)) {
+        source = Analyze(snapshot, tools, cancelled, settings);
+        response["analysis"] = source;
+      }
+      try { response["detail"] = FetchFunction(snapshot, source, address, tools, cancelled, settings); }
+      catch (const std::exception& error) { response["error"] = error.what(); }
+      return response;
+    });
+    view.busy = view.loadingDetails = true;
+    function.explanation = preparingDatabase ? "Preparing the saved project for code loading..." :
+                                              "Loading pseudocode and assembly...";
+    state.Log(function.explanation);
+  } catch (const std::exception& error) {
+    function.explanation = "Code loading stopped: " + std::string(error.what());
+    state.Log(function.explanation);
+  }
 }
 
 void Controller::ShowReport(const Json& report) {
@@ -119,23 +218,12 @@ void Controller::ShowReport(const Json& report) {
       continue;
     }
     const auto& item = *found->second;
-    f.name = item.at("name").get<std::string>();
-    f.address = item.at("address").get<std::string>();
-    f.signature = item.at("signature").get<std::string>();
-    f.explanation = item.at("decompile_ok").get<bool>() ? "Ghidra decompilation completed." : "Ghidra decompilation failed.";
-    const auto diagnostic = item.value("diagnostic", std::string{});
-    if (!diagnostic.empty()) f.explanation += "\n" + diagnostic;
-    if (item.at("code_truncated").get<bool>()) f.explanation += "\nPseudocode truncated at the export limit.";
-    if (item.at("assembly_truncated").get<bool>()) f.explanation += "\nAssembly truncated at the export limit.";
-    std::istringstream lines(item.at("code").get<std::string>());
-    std::string line;
-    while (std::getline(lines, line)) f.code.push_back(line);
-    if (f.code.empty()) f.code.push_back("// No pseudocode available. See evidence diagnostics.");
-    for (const auto& row : item.at("assembly"))
-      f.assembly.push_back({row.at("address").get<std::string>(), row.at("text").get<std::string>(), -1});
+    ApplyFunction(f, item);
     functions.push_back(std::move(f));
   }
   const auto previous = state.functions.empty() ? "" : state.functions[state.selected].address;
+  activeReport = report;
+  attemptedAddress.clear();
   state.functions = std::move(functions);
   state.selected = state.line = state.anchor = 0; state.instruction = -1;
   for (int i = 0; i < static_cast<int>(state.functions.size()); ++i)
@@ -164,7 +252,7 @@ void Controller::ShowReport(const Json& report) {
   if (report.contains("function_index_sha256"))
     view.evidence += "\nAll " + std::to_string(index.size()) + " discovered functions are listed (including external imports).";
   if (report.value("details_truncated", false))
-    view.evidence += "\nDetailed code was exported for the first 256 internal functions; other entries currently show names and addresses only.";
+    view.evidence += "\nThe first 256 internal functions have preview code; selecting another internal function loads its code on demand.";
   if (project->metadata.contains("bundle_executable"))
     view.evidence += "\nApplication main executable: " + project->metadata.at("bundle_executable").get<std::string>() +
         "\nBundled frameworks and helpers are not included in this analysis.";

@@ -8,10 +8,12 @@ namespace mock { class Workbench; }
 // The provider owns tool execution/storage; these panels only draw its state.
 struct WorkbenchIntegration {
   bool busy = false, loaded = false;
+  bool loadingDetails = false;
   int analysisSeconds = 60; // Applies to the next live run; lasts for this session.
   int analysisMemoryGiB = 2; // Java heap ceiling for the next analysis run.
   std::string target = "No ARM64 file open", producer, evidence;
   std::function<void()> tick, open, analyze, cancel, saveNotes;
+  std::function<void()> retryFunction;
   std::function<void(const std::string&)> execute;
 };
 void ConfigureWorkbench(WorkbenchIntegration* integration);

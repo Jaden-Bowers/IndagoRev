@@ -17,9 +17,10 @@ In the application:
    `/System/Applications/Books.app`, or an ARM64 executable/dynamic library.
    Select the `.app` itself; there is no need to browse its package contents.
    Opening a new file starts static analysis automatically.
-2. Search or select any discovered function in the function list. The first 256
-   internal functions have exported pseudocode/assembly; later entries show their
-   name/address and explain that detailed code is not yet available.
+2. Search or select any discovered internal function in the function list.
+   Pseudocode and assembly load in the background when needed. The first 256
+   functions have preview code; other functions are fetched individually from
+   the saved Ghidra analysis and cached for later visits, including after restart.
 3. Click **Compare layout** to place those panes side by side. **Stacked layout**
    returns to the original view without resetting the selected function.
 4. Open **notes.md**, edit your notes and click **Save notes**. Saved notes and
@@ -41,8 +42,17 @@ New analyses save the full list of functions Ghidra discovered, including extern
 imports, with no 256-entry list cutoff. A timed-out analysis can still miss functions
 that Ghidra has not discovered yet. Existing projects retain their old evidence:
 click **Analyze again** to replace an older limited list with the new index.
-Detailed code loading when selecting an unexported function is the next step;
-this increment does not yet fetch it. Such entries cannot be quoted as code.
+Changing selection cancels an obsolete code request and loads the newly selected
+function. **Cancel code loading** stops the request; **Retry code loading** retries
+a cancelled/failed load. Until real code arrives, the panes explain their loading
+state and do not allow code references. External imports have no implementation
+in the selected executable, so they remain descriptive entries.
+
+Older reports did not retain Ghidra's working database. Selecting a function that
+needs code rebuilds that database once in the background, preserves your notes,
+and then fetches the requested function. Later requests reopen the saved program
+read-only with automatic analysis disabled. New full analyses use new databases
+and cache identities, so old function results cannot be mistaken for new results.
 
 The selected program is never executed. The app launches only the analysis tools.
 AI replies and decompiler edits are explicitly unavailable in this milestone.
@@ -91,7 +101,9 @@ from their original `gui` build.
 The live GUI test also analyzes a generated executable with 320 distinct functions
 and an external import. It checks every generated name, selection/filtering beyond
 entry 256 in both layouts, list clipping, reopening the saved index, integrity
-failure and compatibility with older reports. Generated fixture source stays in
+failure and compatibility with older reports. It also checks on-demand code,
+rapid selection changes, cancellation/retry, persisted cache hits, corrupted-cache
+recovery, and automatic upgrade of old reports. Generated fixture source stays in
 the ignored CMake build directory.
 
 The large-file suite imports and analyzes a 320 MiB padded ARM64 fixture, reopens
@@ -143,6 +155,10 @@ existing CLI contracts. Reusing those wider services is later integration work.
   and a `latest.json` pointer. Each new report records its index's hash and count.
 - Per-run tool logs are retained inside the project for diagnosis. Failed runs
   can retain temporary Ghidra files; these are not analysis results.
+- `run-*/projects/` retains each completed Ghidra analysis database for later
+  function requests. `function-cache/` stores checksummed results keyed by the
+  analysis revision, exporter script, function address and selected Java heap.
+  These files take additional disk space; old analysis revisions are retained.
 
 Both `out/` and `.indago/` are ignored by Git. Source and tests belong in
 `macBuild/`; generated output does not. Use `--workspace ABSOLUTE_FOLDER` to
@@ -172,8 +188,9 @@ packaging are later work.
   stored separately from detailed code, without a function-count or report-size
   cutoff. It is streamed to disk during export and loaded into memory for browsing.
   The GUI draws only visible rows; searching still covers the entire list.
-- Detailed-code export limits: 256 internal functions, 2,048 instructions per
-  function, 32,768 pseudocode characters per function. Truncation is explicit.
+- Initial preview: 256 internal functions. Selecting any other discovered internal
+  function fetches it on demand. Individual results still have bounds of 2,048
+  instructions and 32,768 pseudocode characters; truncation is explicit.
 - Ghidra automatic analysis: configurable in GUI Settings, default 60 seconds;
   decompilation: 10 seconds per function. The GUI worker deadline is the chosen
   analysis time plus 120 seconds for startup/export. Longer runs remain cancellable;
@@ -182,6 +199,10 @@ packaging are later work.
   requested ceiling and the running JVM's maximum heap. Successful report files
   containing detailed code are limited to 16 MiB; these bounds do not guarantee
   complete binary analysis. The separate function index does not use that limit.
+- Individual function requests allow 120 seconds for launching Ghidra, opening
+  its saved database, and exporting code, with a 10-second decompiler timeout.
+  They use the current memory setting and remain cancellable. Large/unsupported
+  functions can still yield incomplete pseudocode with diagnostics and assembly.
 - Notes: 1 MiB, saved explicitly. Function references are session-local and
   expire when analysis is refreshed. UI theme/layout preferences are session-local.
 - Console commands: `help`, `functions`, `goto NAME_OR_ADDRESS`, `analyze`,

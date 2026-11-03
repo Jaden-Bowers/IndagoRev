@@ -22,11 +22,16 @@ public:
 private:
   void ShowProject(Project project);
   void ShowReport(const Json& report);
+  void LoadSelectedFunction();
   mock::Workbench& state;
   fs::path workspace;
   Tools tools;
   std::optional<Project> project;
   std::future<Json> pending;
+  Json activeReport;
+  std::string requestedAddress, attemptedAddress;
+  int requestRevision = 0;
+  bool preparingDatabase = false;
   std::atomic_bool cancelled{false};
 };
 } // namespace macbuild

@@ -114,9 +114,10 @@ void DrawHeader() {
     ImGui::EndDisabled();
     if (live->busy) {
       ImGui::SameLine();
-      if (ImGui::Button("Cancel analysis")) live->cancel();
+      if (ImGui::Button(live->loadingDetails ? "Cancel code loading" : "Cancel analysis")) live->cancel();
       ImGui::SameLine();
-      ImGui::TextUnformatted("Analyzing saved bytes; target is not running...");
+      ImGui::TextUnformatted(live->loadingDetails ? "Loading function code; target is not running..." :
+                                                  "Analyzing saved bytes; target is not running...");
     }
     ImGui::Separator();
     return;
@@ -219,7 +220,11 @@ void DrawPseudocode() {
   ImGui::TextDisabled("%s", f.address.c_str());
   if (!f.detailsAvailable) {
     Wrapped(f.explanation);
-    if (!f.external) Wrapped("Loading detailed code on selection is not connected yet.");
+    if (live && !f.external) {
+      ImGui::BeginDisabled(live->busy);
+      if (ImGui::Button("Retry code loading")) live->retryFunction();
+      ImGui::EndDisabled();
+    }
     return;
   }
   ImGui::BeginDisabled(model.Busy() || model.Dirty());

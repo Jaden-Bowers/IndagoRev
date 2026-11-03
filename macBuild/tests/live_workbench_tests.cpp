@@ -338,10 +338,42 @@ int main(int argc, char** argv) {
       std::snprintf(functionFilter.InputBuf, sizeof(functionFilter.InputBuf), "%s", name.c_str());
       functionFilter.Build();
       Frame(); Frame(); Click(name);
+      Wait(indexed);
       REQUIRE(model.functions[model.selected].address == location);
+      REQUIRE(model.functions[model.selected].detailsAvailable);
+      REQUIRE(!model.functions[model.selected].assembly.empty());
+      REQUIRE(model.AddReference());
+      REQUIRE(model.references.back().name == name);
       layout = Layout::Stacked; Frame();
       layout = Layout::Compare; Frame();
       REQUIRE(Pane("Pseudocode").Max.x <= Pane("Assembly").Min.x);
+      // Change selection before the first worker can finish. Its response must
+      // never replace the selected function's name, pseudocode or assembly.
+      std::vector<std::string> unloaded;
+      for (const auto& f : model.functions)
+        if (!f.external && !f.detailsAvailable) unloaded.push_back(f.address);
+      REQUIRE(unloaded.size() >= 3);
+      REQUIRE(model.Navigate(unloaded[0])); indexed.Tick();
+      REQUIRE(indexed.view.loadingDetails);
+      REQUIRE(model.Navigate(unloaded[1]));
+      const auto newestName = model.functions[model.selected].name;
+      indexed.Tick(); Wait(indexed);
+      REQUIRE(model.functions[model.selected].address == unloaded[1]);
+      REQUIRE(model.functions[model.selected].name == newestName);
+      REQUIRE(model.functions[model.selected].detailsAvailable);
+      REQUIRE(std::any_of(model.functions[model.selected].code.begin(), model.functions[model.selected].code.end(),
+          [&](const auto& line) { return line.find(newestName) != std::string::npos; }));
+      REQUIRE(!model.functions[model.selected].assembly.empty());
+      // Explicit cancellation stays cancelled until retry/reselection; no loop
+      // should immediately restart a request the user just stopped.
+      REQUIRE(model.Navigate(unloaded[2])); indexed.Tick();
+      indexed.view.cancel(); Wait(indexed);
+      REQUIRE(!model.functions[model.selected].detailsAvailable);
+      REQUIRE(model.functions[model.selected].explanation.find("cancelled") != std::string::npos);
+      indexed.Tick(); REQUIRE(!indexed.view.busy);
+      Frame(); Click("Retry code loading"); Wait(indexed);
+      REQUIRE(model.functions[model.selected].detailsAvailable);
+      REQUIRE(model.functions[model.selected].address == unloaded[2]);
       functionFilter.Clear();
       ImGui::DestroyContext();
       ConfigureWorkbench(nullptr);
@@ -359,6 +391,34 @@ int main(int argc, char** argv) {
       REQUIRE(reopened.view.loaded && model.functions.size() == entries.size());
       REQUIRE(model.Navigate(location));
       REQUIRE(!model.functions[model.selected].detailsAvailable);
+      reopened.Tick(); Wait(reopened);
+      REQUIRE(model.functions[model.selected].detailsAvailable);
+      REQUIRE(model.status.find("saved cache") != std::string::npos);
+      // A malformed cache must be recomputed, not shown as trusted code.
+      for (const auto& file : fs::directory_iterator(project.directory / "function-cache")) {
+        const auto bytes = macbuild::ReadBytes(file.path());
+        const auto envelope = macbuild::Json::parse(bytes);
+        if (envelope.at("result").at("function").at("address") == location)
+          macbuild::WriteAtomic(file.path(), "{}");
+      }
+      const auto repaired = macbuild::FetchFunction(project, report, location, macbuild::DefaultTools(), requestCancelled);
+      REQUIRE(repaired.at("cache_hit") == false);
+      REQUIRE(repaired.at("function").at("address") == location);
+      // Upgrade an older report that had no retained Ghidra database. Selection
+      // triggers one background rebuild, then fetches the requested code.
+      auto oldReport = report; oldReport.erase("ghidra_run");
+      const auto oldText = oldReport.dump(2);
+      const auto oldHash = macbuild::Sha256(macbuild::Bytes(oldText.begin(), oldText.end()));
+      macbuild::WriteAtomic(project.directory / ("analysis-" + oldHash + ".json"), oldText);
+      macbuild::WriteAtomic(project.directory / "latest.json", macbuild::Json{{"sha256", oldHash}}.dump());
+      macbuild::WriteAtomic(project.directory / "notes.md", "Keep notes through the upgrade");
+      macbuild::Controller upgraded(model, root / "indexed-workspace");
+      upgraded.ResumeLastProject();
+      REQUIRE(model.Navigate(location)); upgraded.Tick(); Wait(upgraded);
+      REQUIRE(model.functions[model.selected].address == location);
+      REQUIRE(model.functions[model.selected].detailsAvailable);
+      REQUIRE(model.notes == "Keep notes through the upgrade");
+      REQUIRE(macbuild::HasAnalysisDatabase(project, macbuild::LoadAnalysis(project)));
       const auto indexFile = project.directory / ("functions-" + report.at("function_index_sha256").get<std::string>() + ".json");
       macbuild::WriteAtomic(indexFile, "[]");
       Rejected([&] { macbuild::LoadFunctionIndex(project, report); });
