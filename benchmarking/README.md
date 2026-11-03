@@ -57,3 +57,11 @@ Metrics preserve each run's frontend fingerprint and distinguish the original
 answers are not independently certified solves. Raw sessions, credentials,
 machine paths, generated helpers and private investigation state are excluded.
 One run per case and an unsnapshotted host do not establish statistical causality.
+
+## Synthetic anti dynamic analysis fixtures
+
+The separate [anti dynamic analysis benchmark](anti_dynamic/README.md) builds
+and tests six local C fixtures under native execution and GDB. It includes the
+reusable harness, behavioral checks, repeated timing methodology, and committed
+raw baseline results. It does not use the FLARE-On inputs or run the Qwen agent
+comparison described above.

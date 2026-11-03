@@ -176,3 +176,7 @@ ctest --test-dir out/anti-dynamic-fixtures --output-on-failure
 The GDB CTest requires all capabilities and fails rather than skipping denied
 tracing. CTest does not run the repeated performance benchmark. Configure with
 `-DBUILD_TESTING=OFF` for a compiler-only fixture build without Python discovery.
+
+The recorded native/GDB development baseline and reproduction commands are in
+[the benchmark report](../../../benchmarking/anti_dynamic/README.md). Its raw
+JSON preserves all 61 functional scenarios and 420 benchmark invocations.
