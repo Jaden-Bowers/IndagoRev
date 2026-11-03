@@ -35,3 +35,10 @@ before and after a bounded record transformation. A nonzero tracer blocks the
 payload result with exit 10, unless `--observe` is supplied. Missing procfs is
 unavailable (77); malformed records fail (1). The snapshots have a race window
 and are an inspection exercise, not proof that instrumentation is absent.
+
+`indago_anti_encrypted_records` keeps three strings encoded with a deterministic
+xorshift XOR stream. Each is decoded into a temporary allocation, validated,
+hashed, re-encoded, compared to its original ciphertext, and explicitly wiped.
+`--observe` prints plaintext during the decoded interval. This is reversible
+obfuscation with embedded keys, not cryptographic protection. It exercises
+short-lived runtime data rather than detecting a debugger.

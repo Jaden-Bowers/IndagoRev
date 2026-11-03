@@ -15,3 +15,4 @@ endfunction()
 
 add_anti_dynamic_fixture(ptrace_guard)
 add_anti_dynamic_fixture(tracer_status)
+add_anti_dynamic_fixture(encrypted_records)
