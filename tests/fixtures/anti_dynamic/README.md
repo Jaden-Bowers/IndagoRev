@@ -96,3 +96,32 @@ This requires GDB and checks a nonzero TracerPid, strict gating, observation
 mode, and suppressed SIGTRAP delivery. A debugger startup failure fails the
 explicit `--gdb` run. Plaintext validation and timing thresholds are fixture
 behavior, not a claim of robust protection against analysis tools.
+
+## Evidence harness
+
+The reporting harness builds the standalone environment and exercises native
+strict/observe behavior, help, rejected arguments, and deterministic timing
+threshold paths. `--gdb` adds execution of every fixture under GDB plus explicit
+signal suppression. Native baseline timing uses a 60-second threshold so normal
+host scheduling does not cause incidental failures. This tests the fixtures;
+it does not benchmark Indago's analysis engine.
+
+```sh
+python3 tests/anti_dynamic_harness.py --gdb --require-capabilities
+```
+
+Python 3.10+, CMake 3.25+, a Linux C compiler, and GDB for debugger mode are
+required. No Python packages are installed. `--no-build`, `--build-dir`,
+`--report-dir`, and `--timeout` customize the run. Report directories must be
+new; by default each run gets a unique directory under
+`out/anti-dynamic-harness/`. Reports preserve commands, stdout/stderr, exit
+codes, timeouts, expectations, source/binary hashes, and host/tool versions.
+Timeouts kill the process group, including debugger children. Each fixture
+process receives a C locale with inherited LD_PRELOAD, LD_AUDIT, and
+LD_LIBRARY_PATH removed. This controlled runner is not a security sandbox.
+
+Exit codes are 0 for matched behavior (capability cases may be unavailable),
+1 for failed checks, and 2 for infrastructure errors. `--require-capabilities`
+makes unavailable cases fail the overall run. A crashed process, timeout, or
+GDB startup failure never counts as an expected detection. Raw evidence stays
+in ignored `out/`; publish only the reviewed reports you intend to retain.
