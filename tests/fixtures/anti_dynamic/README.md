@@ -125,3 +125,26 @@ Exit codes are 0 for matched behavior (capability cases may be unavailable),
 makes unavailable cases fail the overall run. A crashed process, timeout, or
 GDB startup failure never counts as an expected detection. Raw evidence stays
 in ignored `out/`; publish only the reviewed reports you intend to retain.
+
+## Repeated benchmark
+
+```sh
+python3 tests/anti_dynamic_harness.py --gdb --require-capabilities \
+  --benchmark --iterations 30 --warmups 5 --seed 1729
+```
+
+Functional checks run before the benchmark. Every fixture is measured in
+`--observe` mode so native and GDB invocations reach the same payload, including
+the procfs tracer fixture. GDB forwards both signal probes. Mode/fixture order
+is shuffled with the recorded seed within each round; invocations are serial.
+Warmups and failed/unavailable invocations stay in the evidence but are excluded
+from latency statistics. A group is complete only when all warmup and measured
+invocations pass. Median, mean, sample standard deviation, nearest-rank p95,
+and GDB/native median ratios are written to `report.json` and `report.md`.
+
+The measured wall interval includes launch, GDB startup, fixture execution,
+output capture, and process reaping. These short programs primarily measure
+process/debugger startup cost. Ratios are not estimates of instruction-level
+instrumentation overhead. This benchmark does not run Indago, compare tracing
+engines, or establish robust evasion. Iterations default to 20 (range 1–1000),
+warmups to 3 (range 0–100), and the shuffle seed to 1729.

@@ -12,6 +12,7 @@ import shutil
 import sys
 import uuid
 
+from anti_dynamic_benchmark import benchmark, markdown_report
 from anti_dynamic_support import FIXTURES, execute, functional_cases, run_case, sha256
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,20 @@ def positive_float(text: str) -> float:
     value = float(text)
     if not 0 < value <= 3600:
         raise argparse.ArgumentTypeError("must be greater than zero and at most 3600")
+    return value
+
+
+def bounded_count(text: str) -> int:
+    value = int(text)
+    if not 1 <= value <= 1000:
+        raise argparse.ArgumentTypeError("must be between 1 and 1000")
+    return value
+
+
+def warmup_count(text: str) -> int:
+    value = int(text)
+    if not 0 <= value <= 100:
+        raise argparse.ArgumentTypeError("must be between 0 and 100")
     return value
 
 
@@ -45,7 +60,8 @@ def environment(build: Path) -> dict:
             "binary_bytes": (build / f"indago_anti_{name}").stat().st_size,
         } for name in FIXTURES},
         "source_files": {str(path.relative_to(ROOT)): sha256(path) for path in (
-            Path(__file__).resolve(), ROOT / "tests/anti_dynamic_support.py", SOURCE / "CMakeLists.txt")},
+            Path(__file__).resolve(), ROOT / "tests/anti_dynamic_support.py",
+            ROOT / "tests/anti_dynamic_benchmark.py", SOURCE / "CMakeLists.txt")},
     }
 
 
@@ -57,6 +73,10 @@ def main(argv=None) -> int:
     parser.add_argument("--gdb", action="store_true", help="include debugger scenarios")
     parser.add_argument("--require-capabilities", action="store_true", help="fail on unavailable cases")
     parser.add_argument("--timeout", type=positive_float, default=15)
+    parser.add_argument("--benchmark", action="store_true", help="measure repeated observe-mode invocations")
+    parser.add_argument("--iterations", type=bounded_count, default=20)
+    parser.add_argument("--warmups", type=warmup_count, default=3)
+    parser.add_argument("--seed", type=int, default=1729)
     args = parser.parse_args(argv)
     if sys.platform != "linux":
         parser.error("this harness requires Linux")
@@ -91,13 +111,22 @@ def main(argv=None) -> int:
         report["summary"] = dict(counts)
         failed = any(counts[item] for item in ("failed", "error", "timeout"))
         code = int(failed or (args.require_capabilities and counts["unavailable"] > 0))
-        print("Functional:", dict(counts))
+        print("Functional:", dict(counts), flush=True)
+        if args.benchmark:
+            report["benchmark"] = benchmark(build, args.gdb, args.timeout,
+                                            args.iterations, args.warmups, args.seed)
+            benchmark_counts = report["benchmark"]["summary"]["statuses"]
+            if any(benchmark_counts.get(item, 0) for item in ("failed", "error", "timeout")):
+                code = 1
+            if args.require_capabilities and benchmark_counts.get("unavailable", 0):
+                code = 1
     except (OSError, RuntimeError, ValueError) as error:
         report["infrastructure_error"] = str(error)
         print(f"ERROR: {error}", file=sys.stderr)
     finally:
         report["exit_code"] = code
         (report_dir / "report.json").write_text(json.dumps(report, indent=2, default=str) + "\n")
+        (report_dir / "report.md").write_text(markdown_report(report))
         print(f"Report: {report_dir / 'report.json'}")
     return code
 
