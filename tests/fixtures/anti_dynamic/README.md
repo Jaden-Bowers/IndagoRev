@@ -58,9 +58,11 @@ threshold crossings; timing alone does not establish debugger presence.
 `indago_anti_signal_guard` installs handlers, temporarily unblocks its two probe
 signals, and raises SIGUSR1/SIGTRAP twice in a known order. Signal suppression
 changes the handler counters or delivery order and gates the digest (10).
-Handlers and the original mask are restored before completion. In GDB, use
-`handle SIGUSR1 nostop noprint pass` and `handle SIGTRAP nostop noprint pass`
-for normal delivery; suppressing either exercises the changed-delivery branch.
+Handlers and the original mask are restored before completion. In GDB, use the supplied `gdb_forward_signals.gdb` script for normal delivery.
+It forwards Linux SI_TKILL traps from `raise`/`tgkill` through a conditional
+catchpoint while leaving debugger/loader traps suppressed. Globally enabling
+SIGTRAP forwarding can terminate the process before handlers are installed.
+Suppressing probe signals exercises the changed-delivery branch.
 SIGTRAP here comes from `raise`, not an architecture-specific breakpoint opcode.
 
 `indago_anti_encrypted_code` decodes a 13-byte Linux x86-64 SysV function that
@@ -148,3 +150,29 @@ process/debugger startup cost. Ratios are not estimates of instruction-level
 instrumentation overhead. This benchmark does not run Indago, compare tracing
 engines, or establish robust evasion. Iterations default to 20 (range 1–1000),
 warmups to 3 (range 0–100), and the shuffle seed to 1729.
+
+## CTest integration and harness tests
+
+```sh
+cmake -S tests/fixtures/anti_dynamic -B out/anti-dynamic-fixtures
+cmake --build out/anti-dynamic-fixtures
+ctest --test-dir out/anti-dynamic-fixtures --output-on-failure
+```
+
+CTest runs the harness unit suite and native functional matrix. The unit suite
+checks expected-output failures, denied capabilities, debugger startup failures,
+crash classification, timeout cleanup of descendants, loader environment cleanup,
+percentile arithmetic, incomplete sample exclusion, and shuffled round ordering.
+It can also run directly with `python3 tests/anti_dynamic_harness_tests.py`.
+
+GDB tests are opt-in because they require host ptrace permission:
+
+```sh
+cmake -S tests/fixtures/anti_dynamic -B out/anti-dynamic-fixtures \
+  -DINDAGO_ANTI_ENABLE_GDB_TESTS=ON
+ctest --test-dir out/anti-dynamic-fixtures --output-on-failure
+```
+
+The GDB CTest requires all capabilities and fails rather than skipping denied
+tracing. CTest does not run the repeated performance benchmark. Configure with
+`-DBUILD_TESTING=OFF` for a compiler-only fixture build without Python discovery.

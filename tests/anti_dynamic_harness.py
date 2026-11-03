@@ -6,6 +6,7 @@ import argparse
 from collections import Counter
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import platform
 import shutil
@@ -49,7 +50,21 @@ def environment(build: Path) -> dict:
                        if result and result["stdout"] else None}
     revision = execute(["git", "-C", str(ROOT), "rev-parse", "HEAD"], 10)
     status = execute(["git", "-C", str(ROOT), "status", "--porcelain"], 10)
+    cpu_model = next((line.split(":", 1)[1].strip() for line in
+                      Path("/proc/cpuinfo").read_text().splitlines()
+                      if line.startswith("model name")), platform.processor())
+    cache = {}
+    cache_path = build / "CMakeCache.txt"
+    if cache_path.exists():
+        for line in cache_path.read_text().splitlines():
+            if line.startswith(("CMAKE_C_COMPILER:", "CMAKE_C_FLAGS", "CMAKE_BUILD_TYPE:", "CMAKE_GENERATOR:")):
+                key, _, value = line.partition("=")
+                cache[key] = value
+    flags = build / "CMakeFiles/indago_anti_ptrace_guard.dir/flags.make"
     return {
+        "cpu_model": cpu_model, "logical_cpus": os.cpu_count(),
+        "cpu_affinity": sorted(os.sched_getaffinity(0)),
+        "build_cache": cache, "target_flags": flags.read_text() if flags.exists() else None,
         "platform": platform.platform(), "architecture": platform.machine(),
         "python": platform.python_version(), "tools": tools,
         "git_revision": revision["stdout"].strip(),
@@ -61,7 +76,8 @@ def environment(build: Path) -> dict:
         } for name in FIXTURES},
         "source_files": {str(path.relative_to(ROOT)): sha256(path) for path in (
             Path(__file__).resolve(), ROOT / "tests/anti_dynamic_support.py",
-            ROOT / "tests/anti_dynamic_benchmark.py", SOURCE / "CMakeLists.txt")},
+            ROOT / "tests/anti_dynamic_benchmark.py", SOURCE / "CMakeLists.txt",
+            SOURCE / "gdb_forward_signals.gdb")},
     }
 
 
@@ -83,7 +99,10 @@ def main(argv=None) -> int:
     build = args.build_dir.resolve()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report_dir = (args.report_dir or ROOT / "out/anti-dynamic-harness" / f"{stamp}-{uuid.uuid4().hex[:8]}").resolve()
-    report_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        report_dir.mkdir(parents=True, exist_ok=False)
+    except OSError as error:
+        parser.error(f"cannot create fresh report directory: {error}")
     report = {"schema_version": 1, "started_utc": stamp, "options": vars(args).copy(),
               "build_commands": [], "cases": [], "summary": {}, "infrastructure_error": None}
     code = 2

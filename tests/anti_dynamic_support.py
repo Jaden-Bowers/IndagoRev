@@ -52,6 +52,7 @@ class Case:
     patterns: tuple[str, ...] = ()
     gdb_commands: tuple[str, ...] = ()
     allow_unavailable: bool = False
+    gdb_script: str | None = None
 
 
 def payload_markers(fixture: str) -> tuple[str, ...]:
@@ -84,7 +85,7 @@ def success_case(fixture: str, mode: str, observe: bool = False) -> Case:
                             patterns[:1])
     elif fixture == "signal_guard":
         markers += ("probe=signals trap=2 user=2 order=1212",)
-        commands = ("handle SIGUSR1 nostop noprint pass", "handle SIGTRAP nostop noprint pass")
+        commands = ()
     elif fixture == "encrypted_records":
         markers += ("records=3",)
         if observe:
@@ -102,7 +103,8 @@ def success_case(fixture: str, mode: str, observe: bool = False) -> Case:
     return Case("observe" if observe else "strict", fixture, mode, args,
                 contains=markers, excludes=excludes, patterns=patterns,
                 gdb_commands=commands,
-                allow_unavailable=fixture in ("ptrace_guard", "tracer_status", "encrypted_code"))
+                allow_unavailable=fixture in ("ptrace_guard", "tracer_status", "encrypted_code"),
+                gdb_script="gdb_forward_signals.gdb" if fixture == "signal_guard" and mode == "gdb" else None)
 
 
 def functional_cases(with_gdb: bool) -> list[Case]:
@@ -155,9 +157,13 @@ def command_for(case: Case, build: Path, gdb: str = "gdb") -> list[str]:
         raise ValueError(f"unknown execution mode: {case.mode}")
     command = [gdb, "--batch", "--nx", "--nh", "--return-child-result",
                "-ex", "set startup-with-shell off", "-ex", "set disable-randomization off",
-               "-ex", "set pagination off", "-ex", "set confirm off"]
+               "-ex", "set pagination off", "-ex", "set confirm off",
+               "-ex", "set debuginfod enabled off"]
     for item in case.gdb_commands:
         command.extend(("-ex", item))
+    if case.gdb_script:
+        script = Path(__file__).resolve().parent / "fixtures/anti_dynamic" / case.gdb_script
+        return command + ["-x", str(script), "--args", *target]
     return command + ["-ex", "run", "--args", *target]
 
 

@@ -78,6 +78,7 @@ def markdown_report(report: dict) -> str:
              f"Started (UTC): `{report['started_utc']}`", "",
              f"Source revision: `{env.get('git_revision', 'unknown')}`", "",
              f"Host: {env.get('platform', 'unknown')}; Python {env.get('python', 'unknown')}.", "",
+             f"CPU: {env.get('cpu_model', 'unknown')}; logical CPUs: {env.get('logical_cpus', 'unknown')}.", "",
              f"Functional checks: `{counts}`. Overall exit code: `{report['exit_code']}`.", ""]
     benchmark = report.get("benchmark")
     if not benchmark:
