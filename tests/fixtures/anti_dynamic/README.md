@@ -42,3 +42,9 @@ hashed, re-encoded, compared to its original ciphertext, and explicitly wiped.
 `--observe` prints plaintext during the decoded interval. This is reversible
 obfuscation with embedded keys, not cryptographic protection. It exercises
 short-lived runtime data rather than detecting a debugger.
+
+`indago_anti_timing_guard` measures three bounded volatile loops with the
+monotonic clock. Any sample above `--limit-ms N` gates the final digest (10).
+The default is 250 ms; `--limit-ms 0` exercises detection and `--observe` permits
+the digest despite it. Scheduling, host load, and instrumentation can all cause
+threshold crossings; timing alone does not establish debugger presence.
