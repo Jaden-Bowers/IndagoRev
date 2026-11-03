@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
   namespace fs = macbuild::fs;
   auto root = fs::temp_directory_path() / ("Indago ARM test ' $ " + std::to_string(getpid()));
   try {
-    REQUIRE(argc == 2);
+    REQUIRE(argc == 3);
     const auto bytes = macbuild::ReadBytes(argv[1]);
     UniversalChecks(bytes);
     macbuild::WriteAtomic(root / "sample ' $.macho", std::string(bytes.begin(), bytes.end()));
@@ -263,6 +263,82 @@ int main(int argc, char** argv) {
       auto pointer = macbuild::Json::parse(pointerBytes);
       macbuild::WriteAtomic(p.directory / ("analysis-" + pointer.at("sha256").get<std::string>() + ".json"), "{}");
       Rejected([&] { macbuild::LoadAnalysis(p); });
+    }
+    {
+      // A real binary with more than 256 functions proves the index is complete
+      // even though detailed decompilation is still bounded in this increment.
+      macbuild::Controller indexed(model, root / "indexed-workspace");
+      ConfigureWorkbench(&indexed.view);
+      indexed.Open(argv[2]);
+      Wait(indexed);
+      REQUIRE(model.functions.size() > 320);
+      const auto project = macbuild::Import(argv[2], root / "indexed-workspace");
+      const auto report = macbuild::LoadAnalysis(project);
+      const auto entries = macbuild::LoadFunctionIndex(project, report);
+      REQUIRE(entries.size() == model.functions.size());
+      REQUIRE(report.at("function_index_complete") == true);
+      REQUIRE(report.at("functions_truncated") == false);
+      REQUIRE(report.at("details_truncated") == true);
+      REQUIRE(report.at("functions").size() == 256);
+      for (int i = 0; i < 320; ++i) {
+        const auto name = "_indexed_" + std::to_string(i);
+        REQUIRE(std::count_if(model.functions.begin(), model.functions.end(),
+            [&](const auto& f) { return f.name == name; }) == 1);
+      }
+      REQUIRE(std::any_of(model.functions.begin(), model.functions.end(),
+          [](const auto& f) { return f.external && f.address.starts_with("EXTERNAL:"); }));
+      auto late = std::find_if(model.functions.begin(), model.functions.end(),
+          [](const auto& f) { return !f.external && !f.detailsAvailable; });
+      REQUIRE(late != model.functions.end());
+      const auto name = late->name, location = late->address;
+      REQUIRE(std::distance(model.functions.begin(), late) >= 256);
+      REQUIRE(model.Navigate(location));
+      REQUIRE(model.instruction == -1 && model.line == 0);
+      REQUIRE(model.functions[model.selected].code.empty());
+      REQUIRE(!model.AddReference());
+      REQUIRE(model.references.empty());
+      REQUIRE(indexed.view.evidence.find("discovered functions are listed") != std::string::npos);
+
+      ImGui::CreateContext();
+      auto& io = ImGui::GetIO();
+      io.IniFilename = nullptr; io.LogFilename = nullptr;
+      io.DisplaySize = ImVec2(1400, 850);
+      SetWorkbenchStyle();
+      unsigned char* pixels; int width, height;
+      io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+      ImGui::GetCurrentContext()->TestEngineHookItems = true;
+      functionFilter.Clear();
+      Frame(); Frame();
+      // Clipping renders a small visible subset, while filtering can still
+      // reach a function beyond the initial batch of detailed code.
+      REQUIRE(controls.size() < model.functions.size());
+      std::snprintf(functionFilter.InputBuf, sizeof(functionFilter.InputBuf), "%s", name.c_str());
+      functionFilter.Build();
+      Frame(); Frame(); Click(name);
+      REQUIRE(model.functions[model.selected].address == location);
+      layout = Layout::Stacked; Frame();
+      layout = Layout::Compare; Frame();
+      REQUIRE(Pane("Pseudocode").Max.x <= Pane("Assembly").Min.x);
+      functionFilter.Clear();
+      ImGui::DestroyContext();
+      ConfigureWorkbench(nullptr);
+
+      // Old reports remain readable and advertise only the list they contain.
+      auto legacy = report;
+      legacy.erase("function_index_sha256");
+      REQUIRE(macbuild::LoadFunctionIndex(project, legacy) == report.at("functions"));
+      auto wrongCount = report; wrongCount["function_index_count"] = entries.size() + 1;
+      Rejected([&] { macbuild::LoadFunctionIndex(project, wrongCount); });
+      auto badPath = report; badPath["function_index_sha256"] = "../outside";
+      Rejected([&] { macbuild::LoadFunctionIndex(project, badPath); });
+      macbuild::Controller reopened(model, root / "indexed-workspace");
+      reopened.ResumeLastProject();
+      REQUIRE(reopened.view.loaded && model.functions.size() == entries.size());
+      REQUIRE(model.Navigate(location));
+      REQUIRE(!model.functions[model.selected].detailsAvailable);
+      const auto indexFile = project.directory / ("functions-" + report.at("function_index_sha256").get<std::string>() + ".json");
+      macbuild::WriteAtomic(indexFile, "[]");
+      Rejected([&] { macbuild::LoadFunctionIndex(project, report); });
     }
     fs::remove_all(root);
     std::cout << checks << " live ARM analysis and GUI checks passed\n";

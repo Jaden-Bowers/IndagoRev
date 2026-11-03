@@ -163,21 +163,32 @@ void DrawProject() {
                                           ImGuiInputTextFlags_EnterReturnsTrue);
   if (ImGui::Button("Go") || go) model.Navigate(address);
   ImGui::Separator();
-  int visible = 0;
+  std::vector<int> visible;
   for (int i = 0; i < static_cast<int>(model.functions.size()); ++i) {
     const auto& f = model.functions[i];
     const auto searchable = f.name + " " + f.address;
     if (!functionFilter.PassFilter(searchable.c_str())) continue;
-    ++visible;
-    // Stable IDs avoid collisions if two visible labels happen to match.
-    ImGui::PushID(i);
-    if (ImGui::Selectable(f.name.c_str(), !model.showNotes && model.selected == i))
-      model.SelectFunction(i);
-    ImGui::TextDisabled("%s", f.address.c_str());
-    ImGui::Spacing();
-    ImGui::PopID();
+    visible.push_back(i);
   }
-  if (!visible) Wrapped(live ? "No matching functions. Open and analyze a file, or clear the filter." :
+  ImGui::TextDisabled("%zu of %zu functions", visible.size(), model.functions.size());
+  // Submit only visible rows to ImGui; large indexes should not create thousands
+  // of widgets each frame. All functions still participate in filtering.
+  ImGuiListClipper clipper;
+  clipper.Begin(static_cast<int>(visible.size()), ImGui::GetTextLineHeightWithSpacing() * 2 + ImGui::GetStyle().ItemSpacing.y);
+  while (clipper.Step()) {
+    for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+      const int i = visible[row];
+      const auto& f = model.functions[i];
+      // Stable IDs avoid collisions if two visible labels happen to match.
+      ImGui::PushID(i);
+      if (ImGui::Selectable(f.name.c_str(), !model.showNotes && model.selected == i))
+        model.SelectFunction(i);
+      ImGui::TextDisabled("%s", f.address.c_str());
+      ImGui::Spacing();
+      ImGui::PopID();
+    }
+  }
+  if (visible.empty()) Wrapped(live ? "No matching functions. Open and analyze a file, or clear the filter." :
                                "No matching functions. Clear the filter to show all four.");
   if (model.Dirty()) Wrapped("Save or discard notes before navigating.");
 }
@@ -206,6 +217,11 @@ void DrawPseudocode() {
   ImGui::TextDisabled("%s", f.name.c_str());
   SameLineIfFits(f.address.c_str());
   ImGui::TextDisabled("%s", f.address.c_str());
+  if (!f.detailsAvailable) {
+    Wrapped(f.explanation);
+    if (!f.external) Wrapped("Loading detailed code on selection is not connected yet.");
+    return;
+  }
   ImGui::BeginDisabled(model.Busy() || model.Dirty());
   if (ImGui::Button("Add reference")) model.AddReference();
   ImGui::EndDisabled();
@@ -232,6 +248,10 @@ void DrawPseudocode() {
 void DrawAssembly() {
   Heading("Assembly");
   if (model.functions.empty()) { Wrapped("No analyzed instructions yet."); return; }
+  if (!model.functions[model.selected].detailsAvailable) {
+    Wrapped(model.functions[model.selected].explanation);
+    return;
+  }
   const auto& rows = model.functions[model.selected].assembly;
   const bool exact = model.instruction >= 0 && rows[model.instruction].codeLine >= 0;
   ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));

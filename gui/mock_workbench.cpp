@@ -71,7 +71,9 @@ bool Workbench::SelectFunction(int index) {
   if (index < 0 || index >= static_cast<int>(functions.size())) return Fail("Function not found.");
   selected = index;
   showNotes = false;
-  SelectLine(0);
+  line = anchor = 0;
+  instruction = -1;
+  if (!functions[selected].code.empty()) SelectLine(0);
   Log("Selected " + functions[selected].name);
   return true;
 }
@@ -114,6 +116,8 @@ void Workbench::DiscardNotes() { notes = savedNotes; Log("Unsaved notes discarde
 
 bool Workbench::AddReference() {
   if (Busy() || Dirty() || showNotes) return Fail("Finish the operation or notes edit before quoting code.");
+  if (functions.empty() || !functions[selected].detailsAvailable || functions[selected].code.empty())
+    return Fail("No exported code is available to reference for this function.");
   if (references.size() >= 8) return Fail("At most eight references are allowed.");
   Reference ref{nextReference++, selected, std::min(line, anchor), std::max(line, anchor),
                 revision, functions[selected].name, ""};

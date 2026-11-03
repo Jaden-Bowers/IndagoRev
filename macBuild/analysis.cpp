@@ -8,6 +8,7 @@
 #include <spawn.h>
 #include <sys/wait.h>
 #include <thread>
+#include <unordered_set>
 #include <unistd.h>
 
 namespace macbuild {
@@ -145,6 +146,14 @@ Json Analyze(const Project& original, const Tools& tools, const std::atomic_bool
   report["analysis_timeout_seconds"] = settings.analysisSeconds;
   report["worker_timeout_seconds"] = settings.workerSeconds;
   report["java_heap_gib"] = settings.memoryGiB;
+  // Publish the immutable index before publishing the report that refers to it.
+  // A cancellation or failed export must not replace the previous latest report.
+  const BinaryFile index(run / "functions.json");
+  const auto indexHash = index.Hash(0, index.size());
+  index.CopyAtomic(p.directory / ("functions-" + indexHash + ".json"), 0, index.size(), indexHash);
+  report["function_index_sha256"] = indexHash;
+  LoadFunctionIndex(p, report); // Verify the index contract before saving evidence.
+  if (cancel) throw std::runtime_error("Analysis cancelled; previous evidence retained.");
   const auto document = report.dump(2);
   const auto hash = Sha256(Bytes(document.begin(), document.end()));
   WriteAtomic(p.directory / ("analysis-" + hash + ".json"), document);
@@ -167,5 +176,31 @@ Json LoadAnalysis(const Project& p) {
       result.at("input_sha256") != p.metadata.at("slice_sha256"))
     throw std::runtime_error("Evidence belongs to a different input.");
   return result;
+}
+
+Json LoadFunctionIndex(const Project& p, const Json& report) {
+  if (!report.contains("function_index_sha256")) return report.at("functions");
+  const auto hash = report.at("function_index_sha256").get<std::string>();
+  if (hash.size() != 64 || hash.find_first_not_of("0123456789abcdef") != std::string::npos)
+    throw std::runtime_error("Invalid function index identifier.");
+  const auto path = p.directory / ("functions-" + hash + ".json");
+  const BinaryFile file(path);
+  if (file.Hash(0, file.size()) != hash)
+    throw std::runtime_error("Function index integrity check failed.");
+  // Parse from the stream, without applying the detailed report's size limit or
+  // making a second full-file byte buffer. The list itself lives in memory.
+  std::ifstream stream(path);
+  auto index = Json::parse(stream);
+  if (!index.is_array() || index.size() != report.at("function_index_count").get<std::size_t>() ||
+      !report.at("function_index_complete").get<bool>())
+    throw std::runtime_error("Incomplete function index.");
+  std::unordered_set<std::string> addresses;
+  for (const auto& item : index) {
+    const auto address = item.at("address").get<std::string>();
+    if (!item.at("name").is_string() || !item.at("external").is_boolean() ||
+        address.empty() || !addresses.insert(address).second)
+      throw std::runtime_error("Invalid or duplicate function index entry.");
+  }
+  return index;
 }
 } // namespace macbuild

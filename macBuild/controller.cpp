@@ -1,5 +1,6 @@
 #include "controller.hpp"
 #include <sstream>
+#include <unordered_map>
 
 namespace macbuild {
 namespace {
@@ -99,8 +100,25 @@ void Controller::Tick() {
 
 void Controller::ShowReport(const Json& report) {
   std::vector<mock::Function> functions;
-  for (const auto& item : report.at("functions")) {
+  std::unordered_map<std::string, const Json*> details;
+  for (const auto& item : report.at("functions"))
+    details.emplace(item.at("address").get<std::string>(), &item);
+  const auto index = LoadFunctionIndex(*project, report);
+  functions.reserve(index.size());
+  for (const auto& entry : index) {
     mock::Function f;
+    f.name = entry.at("name").get<std::string>();
+    f.address = entry.at("address").get<std::string>();
+    f.external = entry.value("external", false);
+    const auto found = details.find(f.address);
+    f.detailsAvailable = found != details.end();
+    if (!f.detailsAvailable) {
+      f.explanation = f.external ? "Imported external function; its implementation is outside this executable." :
+          "Function discovered by Ghidra. Pseudocode and assembly have not been exported for this function yet.";
+      functions.push_back(std::move(f));
+      continue;
+    }
+    const auto& item = *found->second;
     f.name = item.at("name").get<std::string>();
     f.address = item.at("address").get<std::string>();
     f.signature = item.at("signature").get<std::string>();
@@ -122,7 +140,7 @@ void Controller::ShowReport(const Json& report) {
   state.selected = state.line = state.anchor = 0; state.instruction = -1;
   for (int i = 0; i < static_cast<int>(state.functions.size()); ++i)
     if (state.functions[i].address == previous) state.selected = i;
-  if (!state.functions.empty()) state.SelectLine(0);
+  if (!state.functions.empty() && !state.functions[state.selected].code.empty()) state.SelectLine(0);
   state.references.clear(); ++state.revision;
   state.partial = report.at("partial").get<bool>();
   view.producer = "Ghidra " + report.at("ghidra_version").get<std::string>();
@@ -142,7 +160,11 @@ void Controller::ShowReport(const Json& report) {
   if (report.value("analysis_timed_out", false))
     view.evidence += "\nGhidra reached that analysis time limit; results are incomplete.";
   if (report.value("functions_truncated", false))
-    view.evidence += "\nOnly the first 256 functions were exported.";
+    view.evidence += "\nThis older report has a limited function list. Analyze again to build the complete discovered list.";
+  if (report.contains("function_index_sha256"))
+    view.evidence += "\nAll " + std::to_string(index.size()) + " discovered functions are listed (including external imports).";
+  if (report.value("details_truncated", false))
+    view.evidence += "\nDetailed code was exported for the first 256 internal functions; other entries currently show names and addresses only.";
   if (project->metadata.contains("bundle_executable"))
     view.evidence += "\nApplication main executable: " + project->metadata.at("bundle_executable").get<std::string>() +
         "\nBundled frameworks and helpers are not included in this analysis.";

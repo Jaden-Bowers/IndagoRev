@@ -3,6 +3,7 @@
 import java.nio.file.*;
 import java.nio.charset.StandardCharsets;
 import com.google.gson.*;
+import com.google.gson.stream.JsonWriter;
 import ghidra.app.util.headless.HeadlessScript;
 import ghidra.app.decompiler.*;
 import ghidra.framework.Application;
@@ -11,6 +12,24 @@ import ghidra.program.model.listing.*;
 
 public class MacExport extends HeadlessScript {
     private String hex(Address value) { return "0x" + Long.toHexString(value.getOffset()); }
+
+    private int writeIndex(FunctionIterator iterator, JsonWriter writer) throws Exception {
+        int count = 0;
+        while (iterator.hasNext()) {
+            monitor.checkCancelled();
+            Function function = iterator.next();
+            writer.beginObject();
+            writer.name("name").value(function.getName());
+            // External addresses live in a different address space; keep its
+            // prefix rather than presenting an import as an executable address.
+            writer.name("address").value(function.isExternal() ?
+                function.getEntryPoint().toString() : hex(function.getEntryPoint()));
+            writer.name("external").value(function.isExternal());
+            writer.endObject();
+            ++count;
+        }
+        return count;
+    }
 
     @Override
     public void run() throws Exception {
@@ -76,6 +95,22 @@ public class MacExport extends HeadlessScript {
             report.addProperty("functions_truncated", iterator.hasNext());
             partial |= iterator.hasNext() || monitor.isCancelled();
         } finally { decompiler.dispose(); }
+        // Stream the complete name/address index separately from detailed code.
+        // It has no function-count cap and does not share the code report's
+        // output budget. Analysis timeouts can still limit what Ghidra discovers.
+        Path index = Path.of(args[0]).resolveSibling("functions.json");
+        int indexed;
+        try (JsonWriter writer = new JsonWriter(Files.newBufferedWriter(index, StandardCharsets.UTF_8))) {
+            writer.beginArray();
+            FunctionManager manager = currentProgram.getFunctionManager();
+            indexed = writeIndex(manager.getFunctions(true), writer);
+            indexed += writeIndex(manager.getExternalFunctions(), writer);
+            writer.endArray();
+        }
+        report.addProperty("function_index_count", indexed);
+        report.addProperty("function_index_complete", true);
+        report.addProperty("details_truncated", report.get("functions_truncated").getAsBoolean());
+        report.addProperty("functions_truncated", false);
         report.add("functions", functions);
         report.addProperty("partial", partial);
         report.addProperty("target_executed", false);

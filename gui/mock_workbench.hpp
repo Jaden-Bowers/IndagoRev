@@ -15,6 +15,7 @@ struct Function {
   std::string name, address, signature, variableType, explanation;
   std::vector<std::string> code;
   std::vector<Instruction> assembly;
+  bool detailsAvailable = true, external = false; // Live index entries may have no code yet.
 };
 struct Reference {
   int id, function, firstLine, lastLine, revision;

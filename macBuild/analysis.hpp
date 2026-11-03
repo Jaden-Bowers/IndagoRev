@@ -20,4 +20,7 @@ AnalysisSettings SettingsForAnalysis(int seconds, int memoryGiB = 2);
 Json Analyze(const Project& project, const Tools& tools, const std::atomic_bool& cancel,
              AnalysisSettings settings = {});
 Json LoadAnalysis(const Project& project);
+// Read the complete index stored alongside the bounded detailed-code report.
+// Older reports fall back to the functions they originally exported.
+Json LoadFunctionIndex(const Project& project, const Json& report);
 } // namespace macbuild
