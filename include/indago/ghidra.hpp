@@ -1,6 +1,7 @@
 #pragma once
 #include "indago/core.hpp"
 namespace indago {
+// Request parameters and limits for a Ghidra headless query.
 struct GhidraOptions {
     std::string operation{"inspect"};
     std::string address;
@@ -10,5 +11,6 @@ struct GhidraOptions {
     fs::path cancel_file;
     nlohmann::json arguments = nlohmann::json::object();
 };
+// Runs one Ghidra operation for a target and returns its command result.
 CommandResult query_ghidra(const TargetRecord&, const ProjectStore&, const GhidraOptions&);
 }

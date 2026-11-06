@@ -1,6 +1,7 @@
 #pragma once
 #include "indago/airece.hpp"
 namespace indago {
+// Symbolic execution/solver request options.
 struct SymOptions : NativeProcessOptions {
     std::string operation{"solve_branch"};
     std::string address; // containing function for branch/taint; seed for slice
@@ -12,5 +13,6 @@ struct SymOptions : NativeProcessOptions {
     std::uint64_t solver_time_ms{1000};
     fs::path executable;
 };
+// Runs a symbolic query for a target and returns its command result.
 CommandResult query_sym(const TargetRecord& target, const SymOptions& options);
 }

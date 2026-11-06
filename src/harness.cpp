@@ -17,6 +17,7 @@ namespace indago {
 using namespace wb;
 namespace {
 constexpr std::int64_t lease_ms = 60000;
+// True for investigation statuses that no longer accept changes.
 bool terminal(const std::string &s) {
   return std::set<std::string>{"answered",
                                "partial",
@@ -29,12 +30,14 @@ bool terminal(const std::string &s) {
                                "cancelled"}
       .contains(s);
 }
+// Reads a required non-empty string field, bounded to max bytes.
 std::string text_field(const J &r, const char *key, std::size_t max = 4096) {
   auto s = r.at(key).get<std::string>();
   if (s.empty() || s.size() > max)
     throw std::runtime_error(std::string("invalid text: ") + key);
   return s;
 }
+// Validates a bounded array of non-empty, size-limited strings.
 void texts(const J &array, std::size_t max = 32) {
   if (!array.is_array() || array.size() > max)
     throw std::runtime_error("invalid text list");
@@ -43,12 +46,14 @@ void texts(const J &array, std::size_t max = 32) {
         s.get_ref<const std::string &>().size() > 4096)
       throw std::runtime_error("invalid text list item");
 }
+// Loads and parses an investigation record, throwing if missing.
 J load_investigation(Db &db, const std::string &p, const std::string &id) {
   Q q(db, "SELECT record FROM wb_investigations WHERE project=? AND id=?");
   if (!q.s(1, p).s(2, id).row())
     throw std::runtime_error("unknown investigation");
   return J::parse(q.text(0));
 }
+// Bumps revision/updated_at, persists the record and logs an event.
 void save_investigation(Db &db, J &record, const std::string &kind) {
   record["revision"] = record.at("revision").get<std::uint64_t>() + 1;
   record["updated_at"] = utc_timestamp();
@@ -60,12 +65,14 @@ void save_investigation(Db &db, J &record, const std::string &kind) {
   event(db, record.at("project"), record.at("id"), kind,
         {{"revision", record["revision"]}, {"status", record["status"]}});
 }
+// Enforces the caller's expected_revision against the loaded record.
 void revision(const J &r, const J &record) {
   if (!r.contains("expected_revision") ||
       r["expected_revision"] != record["revision"])
     throw std::runtime_error(
         "revision_conflict: refresh investigation before changing it");
 }
+// Verifies the caller's owner token and a live lease deadline.
 void ownership(Db &db, const J &r, const J &record) {
   Q q(db, "SELECT token_hash,deadline FROM wb_investigations WHERE project=? "
           "AND id=?");
@@ -76,6 +83,7 @@ void ownership(Db &db, const J &r, const J &record) {
       q.num(1) <= now_ms())
     throw std::runtime_error("ownership conflict: lease absent or expired");
 }
+// True if a model controller or an action runner is active.
 bool running(Db &db, const std::string &p, const std::string &id) {
   if (model_controller_running(db, p, id))
     return true;
@@ -83,12 +91,14 @@ bool running(Db &db, const std::string &p, const std::string &id) {
           "investigation=? AND runner<>'' AND deadline>? LIMIT 1");
   return q.s(1, p).s(2, id).n(3, now_ms()).row();
 }
+// True if any action is proposed, running or awaiting a job.
 bool unsettled(Db &db, const std::string &p, const std::string &id) {
   Q q(db, "SELECT 1 FROM wb_investigation_actions WHERE project=? AND "
           "investigation=? AND json_extract(record,'$.status') IN "
           "('proposed','running','waiting_for_job') LIMIT 1");
   return q.s(1, p).s(2, id).row();
 }
+// Loads one investigation action record, throwing if missing.
 J action_record(Db &db, const std::string &p, const std::string &id,
                 const std::string &action) {
   Q q(db, "SELECT record FROM wb_investigation_actions WHERE project=? AND "
@@ -97,6 +107,7 @@ J action_record(Db &db, const std::string &p, const std::string &id,
     throw std::runtime_error("unknown investigation action");
   return J::parse(q.text(0));
 }
+// Persists an updated action record.
 void save_action(Db &db, const J &a) {
   Q q(db,
       "UPDATE wb_investigation_actions SET record=? WHERE project=? AND id=?");
@@ -105,6 +116,7 @@ void save_action(Db &db, const J &a) {
       .s(3, a.at("id").get<std::string>())
       .row();
 }
+// Resolves and verifies evidence/experiment citations for an investigation.
 J citation(Db &db, const J &inv, const std::string &id) {
   if(id.rfind("kn_",0)==0) {
     const auto p=inv.at("project").get<std::string>();
@@ -197,6 +209,7 @@ void publication_proof(ProjectStore &store,Db &db,const J &inv,const J &proof) {
     }
   }
 }
+// Executes one granted investigation action and publishes its outcome.
 J run_action(StaticService &service, const J &request) {
   const auto &store = service.store();
   auto p = project(store, request), id = text_field(request, "id", 128),
@@ -474,6 +487,7 @@ J run_action(StaticService &service, const J &request) {
   return action;
 }
 } // namespace
+// Runs a leased workbench action in this child process and publishes it.
 J harness_workbench_worker(StaticService &service, const std::string &p,
                            const std::string &id, const std::string &aid,
                            const std::string &runner) {
@@ -503,6 +517,7 @@ J harness_workbench_worker(StaticService &service, const std::string &p,
   execute_harness_workbench(service, req);
   return {{"status", "completed"}, {"publication_committed", true}};
 }
+// Builds the harness capability and policy manifest.
 J harness_capabilities() {
   return {
       {"schema", "indago.harness-capabilities.v1"},
@@ -571,6 +586,7 @@ J harness_capabilities() {
       {"lease_ms", lease_ms},
       {"verified_solve", false}};
 }
+// Validates and routes one harness operation to its handler.
 static J dispatch_harness(StaticService &service, std::string_view operation,
                           const J &r) {
   if (!r.is_object() || r.dump().size() > 262144)
@@ -1309,6 +1325,7 @@ static J dispatch_harness(StaticService &service, std::string_view operation,
   }
   throw std::runtime_error("unknown harness operation");
 }
+// Applies an operator-supplied independent benchmark verification.
 J harness_certify(StaticService &service,const J &r) {
   // No caller-supplied receipt is trusted. The evaluator is deliberately outside
   // both the analysis directory and the harness's model-visible object store.
@@ -1353,6 +1370,7 @@ J harness_certify(StaticService &service,const J &r) {
   event(db,p,id,"harness.requirement_verified",record);
   save_investigation(db,inv,"harness.verification_recorded");tx.commit();return inv;
 }
+// Public entrypoint: dispatches, trims oversized pages and maps errors.
 J harness_action(StaticService &service, std::string_view operation,
                  const J &r) {
   try {

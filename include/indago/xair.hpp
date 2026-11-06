@@ -3,6 +3,7 @@
 #include <atomic>
 
 namespace indago {
+// In-process xair query options: operation, optional function and limits.
 struct XairQuery {
     std::string operation{"cfg"}; // cfg or semantic
     std::optional<std::uint64_t> function;
@@ -11,5 +12,6 @@ struct XairQuery {
     XairOptions analysis;
     const std::atomic_bool* cancellation{};
 };
+// Runs an xair query on a target and returns its command result.
 CommandResult query_xair(const TargetRecord& target, const XairQuery& query);
 }

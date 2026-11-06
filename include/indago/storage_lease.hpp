@@ -22,6 +22,8 @@ class StorageLease {
   int handle_ = -1;
 #endif
 public:
+  // Acquires a shared (default) or exclusive non-blocking lease on
+  // root/storage.lease; a busy lease throws instead of racing a publication.
   explicit StorageLease(const fs::path &root, bool exclusive = false) {
     auto path = root / "storage.lease";
 #ifdef _WIN32
@@ -52,6 +54,7 @@ public:
 #endif
   }
   StorageLease(const StorageLease &) = delete;
+  // Releases the lease and closes the underlying handle.
   ~StorageLease() {
 #ifdef _WIN32
     if (handle_ != INVALID_HANDLE_VALUE) {

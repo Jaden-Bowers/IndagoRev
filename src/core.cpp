@@ -16,15 +16,19 @@
 namespace indago {
 using Json = nlohmann::json;
 namespace {
+// Returns the current wall-clock time in milliseconds since the epoch.
 std::int64_t epoch_ms(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
+// Rejects identifiers that are empty, too long or contain unsafe characters.
 void validate_name(std::string_view value) {
     if (value.empty() || value.size() > 128) throw std::runtime_error("invalid identifier length");
     for (unsigned char ch : value)
         if (!(std::isalnum(ch) || ch == '-' || ch == '_')) throw std::runtime_error("identifiers must contain letters, digits, '-' or '_'");
 }
+// RAII SQLite connection holding a storage lease; enables foreign keys.
 struct Db {
     StorageLease storage;
     sqlite3* p{};
+// Opens the database, sets a busy timeout and enables foreign keys.
     explicit Db(const fs::path& path):storage(path.parent_path()) {
         const auto utf8=path.u8string();
         if (sqlite3_open(reinterpret_cast<const char*>(utf8.c_str()), &p) != SQLITE_OK) {
@@ -35,7 +39,9 @@ struct Db {
         sqlite3_busy_timeout(p, 10000);
         exec("PRAGMA foreign_keys=ON");
     }
+// Closes the connection.
     ~Db() { sqlite3_close(p); }
+// Executes SQL, throwing on error.
     void exec(const char* sql) {
         char* error{};
         if (sqlite3_exec(p, sql, nullptr, nullptr, &error) != SQLITE_OK) {
@@ -45,37 +51,47 @@ struct Db {
         }
     }
 };
+// RAII prepared statement with text/integer bindings and row stepping.
 struct Statement {
     sqlite3_stmt* p{};
+// Prepares sql against the connection, throwing on error.
     explicit Statement(Db& db, const char* sql) {
         if (sqlite3_prepare_v2(db.p, sql, -1, &p, nullptr) != SQLITE_OK) throw std::runtime_error(sqlite3_errmsg(db.p));
     }
+// Finalizes the statement.
     ~Statement() { sqlite3_finalize(p); }
+// Binds a text value at the given 1-based index.
     Statement& bind(int index, std::string_view value) {
         if (sqlite3_bind_text(p, index, value.empty() ? "" : value.data(), static_cast<int>(value.size()), SQLITE_TRANSIENT) != SQLITE_OK) throw std::runtime_error("SQL bind failed");
         return *this;
     }
+// Binds an integer value at the given 1-based index.
     Statement& number(int index, std::int64_t value) { sqlite3_bind_int64(p, index, value); return *this; }
+// Steps to the next row; returns false once the statement is done.
     bool row() {
         int code = sqlite3_step(p);
         if (code == SQLITE_ROW) return true;
         if (code == SQLITE_DONE) return false;
         throw std::runtime_error(sqlite3_errmsg(sqlite3_db_handle(p)));
     }
+// Returns a column as text, or an empty string for NULL.
     std::string text(int index) const {
         const auto* value = sqlite3_column_text(p, index);
         return value ? reinterpret_cast<const char*>(value) : "";
     }
 };
+// Reads a whole file into a string, throwing if it cannot be opened.
 std::string read_text(const fs::path& path) {
     std::ifstream input(path, std::ios::binary);
     if (!input) throw std::runtime_error("cannot open " + path.string());
     return {std::istreambuf_iterator<char>(input), {}};
 }
+// Maps a SHA-256 to its sharded object path, validating the hash.
 fs::path object_path(const fs::path& root, std::string_view hash) {
     if (hash.size() != 64 || hash.find_first_not_of("0123456789abcdef") != std::string_view::npos) throw std::runtime_error("invalid SHA-256");
     return root / "objects" / "sha256" / std::string(hash.substr(0,2)) / std::string(hash.substr(2));
 }
+// Stores bytes in the object store and returns their verified hash.
 std::string publish_blob(const fs::path& root, std::string_view bytes) {
     const auto staged = root / "staging" / make_id("blob");
     atomic_write(staged, bytes);
@@ -91,7 +107,9 @@ std::string publish_blob(const fs::path& root, std::string_view bytes) {
     if (sha256_file(dest) != hash) throw std::runtime_error("content store integrity failure");
     return hash;
 }
+// Parses JSON, propagating syntax errors.
 Json parse_json(std::string_view value) { return Json::parse(value); }
+// Normalizes a numeric or hex-string address to 0x form; empty if invalid.
 std::string canonical_address(const Json& value) {
     if (value.is_number_unsigned()) return hex_address(value.get<std::uint64_t>());
     if (!value.is_string()) return {};
@@ -101,6 +119,7 @@ std::string canonical_address(const Json& value) {
     auto result = std::from_chars(text.data(), text.data()+text.size(), number, 16);
     return result.ec == std::errc{} && result.ptr == text.data()+text.size() ? hex_address(number) : "";
 }
+// Recursively gathers function objects from nested backend output.
 void collect_functions(const Json& value, std::vector<Json>& result, unsigned depth=0) {
     if (depth > 12) return;
     if (value.is_object()) {
@@ -113,11 +132,13 @@ void collect_functions(const Json& value, std::vector<Json>& result, unsigned de
         }
     } else if (value.is_array()) for (const auto& item : value) collect_functions(item, result, depth+1);
 }
+// Throws unless the named project exists.
 void require_project(Db& db, std::string_view name) {
     validate_name(name);
     Statement query(db, "SELECT name FROM projects WHERE name=?");
     if (!query.bind(1,name).row()) throw std::runtime_error("unknown project: " + std::string(name));
 }
+// Projects a published result into the normalized static index tables.
 Json persist_index(Db& db,const TargetRecord& target,const Json& job,std::string_view backend,std::string_view evidence,const Json& native,std::string_view source_status){
     Json layout=Json::object();Statement mapping(db,"SELECT record FROM artifact_layouts WHERE project=? AND artifact=? ORDER BY rowid DESC LIMIT 1");mapping.bind(1,target.project).bind(2,target.sha256);if(mapping.row())layout=parse_json(mapping.text(0));
     auto index=normalize_static(target,job,backend,evidence,native,layout);

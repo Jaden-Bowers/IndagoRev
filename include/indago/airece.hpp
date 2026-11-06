@@ -4,6 +4,7 @@
 #include <functional>
 
 namespace indago {
+// Options for spawning an isolated native worker process.
 struct NativeProcessOptions {
     std::uint64_t wall_time_ms{120000};
     std::size_t max_output_bytes{1024 * 1024};
@@ -17,16 +18,20 @@ struct NativeProcessOptions {
     std::map<std::string,std::string> environment;
     std::function<bool()> should_cancel;
 };
+// Outcome of a native worker process, including bounded-output and
+// timeout/cancellation flags.
 struct NativeProcessResult {
     int exit_code{-1};
     bool timed_out{}, cancelled{}, truncated{};
     bool output_complete{}; // Both pipes reached EOF, not merely parent exit.
     std::string output, error;
 };
-// No shell is involved. Each argument is passed as one literal argument.
+// Runs executable with literal argv (no shell) under the given time, output and
+// cancellation limits.
 NativeProcessResult run_native_process(const fs::path& executable,
     const std::vector<std::string>& arguments, const NativeProcessOptions& options);
 
+// AIRECE worker request: operation, view, address, arguments and limits.
 struct AireceOptions : NativeProcessOptions {
     std::string operation{"inspect"};
     std::string view{"compact"};
@@ -36,7 +41,10 @@ struct AireceOptions : NativeProcessOptions {
     std::vector<std::pair<std::string, std::string>> repeated_arguments;
     fs::path executable; // Test injection only; production uses indago's internal worker.
 };
+// Locates the internal AIRECE worker executable, if available.
 std::optional<fs::path> find_airece();
+// Locates the generic native worker executable, if available.
 std::optional<fs::path> find_native_worker();
+// Runs an AIRECE operation on a target and returns its command result.
 CommandResult run_airece(const TargetRecord& target, const AireceOptions& options);
 }
