@@ -31,6 +31,7 @@ nlohmann::json workbench_capabilities() {
           {"semantics", "No automatic semantic entailment, universal recovery, "
                         "whole-program equivalence, or sandbox is claimed"}};
 }
+// Routes a workbench family/operation to its implementation.
 static nlohmann::json dispatch_workbench(StaticService &service,
                                          std::string_view family,
                                          std::string_view operation,

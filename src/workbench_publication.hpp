@@ -7,11 +7,14 @@ namespace indago::wb {
 struct PublicationContext {
   std::string project, investigation, action, runner, request_sha256;
 };
+// Thread-local active publication context, or null outside a scope.
 inline thread_local const PublicationContext *publication_context = nullptr;
+// Installs a thread-local publication context for a scope; rejects nesting.
 class PublicationScope {
   PublicationContext context_;
 
 public:
+// Installs the context, rejecting nested scopes.
   explicit PublicationScope(PublicationContext context)
       : context_(std::move(context)) {
     if (publication_context)
@@ -20,14 +23,17 @@ public:
   }
   PublicationScope(const PublicationScope &) = delete;
   PublicationScope &operator=(const PublicationScope &) = delete;
+// Clears the installed context.
   ~PublicationScope() { publication_context = nullptr; }
 };
+// Returns the origin block recorded with a published record.
 inline J publication_origin() {
   const auto &c = *publication_context;
   return {{"investigation", c.investigation},
           {"action", c.action},
           {"request_sha256", c.request_sha256}};
 }
+// Loads and validates the exact action being published.
 inline J publication_action(Db &db) {
   const auto &c = *publication_context;
   Q get(db, "SELECT record FROM wb_investigation_actions WHERE project=? AND "
@@ -77,6 +83,7 @@ inline void check_publication_dependencies(Db &db, const std::string &project) {
       throw std::runtime_error("dependency pin changed before publication");
   }
 }
+// Attaches the publication pointer to the action record.
 inline void link_publication(Db &db, const J &record, const std::string &sha) {
   if (!publication_context)
     return;
