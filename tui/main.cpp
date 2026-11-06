@@ -16,6 +16,7 @@ namespace {
 
 using namespace tui;
 
+// Query form field values shared by the render and input handlers.
 struct QueryForm {
     struct Field {
         std::string label, value;
@@ -29,6 +30,9 @@ struct QueryForm {
     int sel{0};
 } g_query;
 
+// Returns the lines the Detail page should show: a finished task's text or raw
+// JSON when one is displayed, otherwise the current static lines. When `raw` is
+// non-null it is set to the task's raw lines (or null for static views).
 const std::vector<std::string>* detail_main(const tui::App& app,
                                             const std::vector<std::string>** raw) {
     if (app.show_task) {
@@ -40,11 +44,16 @@ const std::vector<std::string>* detail_main(const tui::App& app,
     return &app.static_lines;
 }
 
+// Formats the "selected/total" position note, or an empty string when the list
+// is empty.
 std::string pos_note(int sel, std::size_t total) {
     return total == 0 ? std::string{} : (std::to_string(sel + 1) + "/" +
                                           std::to_string(total));
 }
 
+// Paints the whole screen for the current page: banner, title, body, help, and
+// status. `tick` animates the busy spinner. Shows a size warning and returns
+// when the terminal is below the supported minimum.
 void render(tui::App& app, unsigned tick) {
     int lines = 0, cols = 0;
     getmaxyx(stdscr, lines, cols);
@@ -249,6 +258,8 @@ void render(tui::App& app, unsigned tick) {
     refresh();
 }
 
+// Applies a list navigation key to `sel`, clamping to [0, total-1]. Supports
+// arrows/j/k, PgUp/PgDn (and space/backspace), and Home/End (and G).
 void handle_arrow(int key, int& sel, std::size_t total) {
     const int count = static_cast<int>(total);
     if (count == 0) return;
@@ -260,6 +271,8 @@ void handle_arrow(int key, int& sel, std::size_t total) {
     else if (key == KEY_END || key == 'G') sel = count - 1;
 }
 
+// Starts an AIRECE function view for the selected function in the background.
+// Does nothing when the list is empty.
 void open_function(tui::App& app, const std::string& view) {
     if (app.functions.empty()) return;
     const auto& f = app.functions[static_cast<std::size_t>(app.fn_sel)];
@@ -268,6 +281,7 @@ void open_function(tui::App& app, const std::string& view) {
     app.run_function_view(f.address, view, title);
 }
 
+// Expands a leading "~" or "~/" to $HOME. Other forms are returned unchanged.
 std::string expand_home(const std::string& path) {
     if (path.empty() || path.front() != '~') return path;
     if (path.size() == 1 || path[1] == '/') {
@@ -281,6 +295,8 @@ std::string expand_home(const std::string& path) {
     return path;
 }
 
+// Prompts for a target path and imports it, setting the status line to the
+// result. Cancelling the prompt leaves the app unchanged.
 void try_import(tui::App& app) {
     const auto path = tui::prompt_line("target file path", "");
     if (!path || path->empty()) return;
@@ -289,6 +305,8 @@ void try_import(tui::App& app) {
     else app.set_status("imported " + expanded);
 }
 
+// Handles Query form input: move between fields, edit the selected field, run
+// the query, or go back.
 void handle_query_form(tui::App& app, int key) {
     const int field_count = static_cast<int>(g_query.fields.size());
     const auto run = [&app] {
@@ -316,6 +334,8 @@ void handle_query_form(tui::App& app, int key) {
 
 }  // namespace
 
+// Entry point: parse arguments, initialize curses and the App, then run the
+// input/render loop until the user quits.
 int main(int argc, char** argv) {
     std::string workspace = ".indago";
     std::string open_project;

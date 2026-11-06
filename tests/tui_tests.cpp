@@ -50,6 +50,7 @@ namespace fs = indago::fs;
 int g_pass = 0;
 int g_fail = 0;
 
+// Records one assertion result and prints ok/FAIL.
 void check(bool ok, const std::string& what) {
     if (ok) {
         ++g_pass;
@@ -84,8 +85,10 @@ const std::string kEnter = "\r";
 // ---------------------------------------------------------------------------
 class Screen {
 public:
+    // Constructs an empty screen with the given dimensions.
     Screen(int rows, int cols) { resize(rows, cols); }
 
+    // Resets the grid to rows x cols and homes the cursor.
     void resize(int rows, int cols) {
         rows_ = rows > 0 ? rows : 1;
         cols_ = cols > 0 ? cols : 1;
@@ -93,6 +96,7 @@ public:
         cy_ = cx_ = 0;
     }
 
+    // Advances the emulator over one chunk of terminal output.
     void feed(const char* data, std::size_t size) {
         for (std::size_t i = 0; i < size; ++i) {
             const unsigned char c = static_cast<unsigned char>(data[i]);
@@ -114,10 +118,12 @@ public:
         }
     }
 
+    // True if the rendered screen currently contains the needle.
     bool contains(const std::string& needle) const {
         return text().find(needle) != std::string::npos;
     }
 
+    // Returns the grid as newline-terminated rows.
     std::string text() const {
         std::string out;
         for (int r = 0; r < rows_; ++r) {
@@ -129,11 +135,13 @@ public:
     }
 
 private:
+    // Writes one character if the position is inside the grid.
     void put(int y, int x, char ch) {
         if (y < 0 || y >= rows_ || x < 0 || x >= cols_) return;
         grid_[static_cast<std::size_t>(y) * cols_ + x] = ch;
     }
 
+    // Consumes one escape sequence at index i and returns its last byte.
     std::size_t escape(const char* d, std::size_t size, std::size_t i) {
         if (i + 1 >= size) return i;
         const char next = d[i + 1];
@@ -158,6 +166,7 @@ private:
         return i + 1;
     }
 
+    // Parses semicolon-separated CSI numeric parameters.
     std::vector<int> params(const std::string& p) const {
         std::vector<int> out;
         int cur = 0;
@@ -176,6 +185,7 @@ private:
         return out;
     }
 
+    // Applies one CSI command to the grid.
     void csi(char final, const std::string& p) {
         const auto a = params(p);
         const int p0 = a.empty() ? 0 : a[0];
@@ -221,6 +231,7 @@ private:
         }
     }
 
+    // Inserts n blank lines at the cursor row.
     void insert_lines(int n) {
         for (int y = rows_ - 1; y >= cy_ + n; --y) {
             for (int x = 0; x < cols_; ++x)
@@ -231,6 +242,7 @@ private:
             for (int x = 0; x < cols_; ++x) put(y, x, ' ');
     }
 
+    // Deletes n lines at the cursor row.
     void delete_lines(int n) {
         for (int y = cy_; y + n < rows_; ++y) {
             for (int x = 0; x < cols_; ++x)
@@ -241,16 +253,21 @@ private:
             for (int x = 0; x < cols_; ++x) put(y, x, ' ');
     }
 
+    // Clears the whole grid.
     void clear_all() { std::fill(grid_.begin(), grid_.end(), ' '); }
+    // Clears the cursor row.
     void clear_line() {
         for (int x = 0; x < cols_; ++x) put(cy_, x, ' ');
     }
+    // Clears from the cursor to the end of its row.
     void clear_to_end_of_line() {
         for (int x = cx_; x < cols_; ++x) put(cy_, x, ' ');
     }
+    // Clears from the start of the row to the cursor.
     void clear_to_start_of_line() {
         for (int x = 0; x <= cx_ && x < cols_; ++x) put(cy_, x, ' ');
     }
+    // Clears from the cursor to the end of the screen.
     void clear_to_end() {
         clear_to_end_of_line();
         for (int y = cy_ + 1; y < rows_; ++y)
@@ -269,6 +286,8 @@ private:
 // ---------------------------------------------------------------------------
 class Session {
 public:
+    // Forks the binary on a pty of the given size and starts it in the
+    // workspace, optionally opening a project.
     Session(const std::string& binary, const std::string& workspace,
             const std::string& project, int cols = 120, int rows = 36)
         : binary_(binary), workspace_(workspace), project_(project),
@@ -295,6 +314,7 @@ public:
         fcntl(master_, F_SETFL, flags | O_NONBLOCK);
     }
 
+    // Kills and reaps the child, then closes the pty master.
     ~Session() {
         if (pid_ > 0) {
             kill(pid_, SIGKILL);
@@ -307,6 +327,7 @@ public:
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
 
+    // Writes keys to the child and pumps output briefly so it can react.
     void send(const std::string& keys, int reap_ms = 40) {
         if (master_ < 0) return;
         const ssize_t n = write(master_, keys.data(), keys.size());
@@ -320,19 +341,25 @@ public:
         }
     }
 
+    // Sends literal text as a single chunk.
     void type(const std::string& text) { send(text); }
+    // Sends Enter.
     void enter() { send(kEnter); }
 
+    // Waits until the needle appears or the timeout expires.
     bool expect(const std::string& needle, int timeout_ms = 5000) {
         return wait_until([&] { return screen_.contains(needle); }, timeout_ms);
     }
 
+    // Waits until the needle disappears or the timeout expires.
     bool gone(const std::string& needle, int timeout_ms = 3000) {
         return wait_until([&] { return !screen_.contains(needle); }, timeout_ms);
     }
 
+    // Pumps pending output, then checks the screen.
     bool contains(const std::string& needle) { pump(); return screen_.contains(needle); }
 
+    // Pumps output for a fixed duration without asserting.
     void settle(int ms) {
         const auto deadline = std::chrono::steady_clock::now() +
                               std::chrono::milliseconds(ms);
@@ -342,6 +369,7 @@ public:
         }
     }
 
+    // Resizes the child terminal and notifies it with SIGWINCH.
     void resize(int cols, int rows) {
         struct winsize ws{};
         ws.ws_col = static_cast<unsigned short>(cols);
@@ -352,6 +380,7 @@ public:
         settle(120);
     }
 
+    // Waits for the child to exit and returns whether it did.
     bool wait_exit(int timeout_ms = 4000) {
         const auto deadline = std::chrono::steady_clock::now() +
                               std::chrono::milliseconds(timeout_ms);
@@ -368,9 +397,11 @@ public:
         return false;
     }
 
+    // Pumps output and returns the current screen text.
     std::string screen() { pump(); return screen_.text(); }
 
 private:
+    // Reads all currently available output into the emulator.
     void pump() {
         if (master_ < 0) return;
         char scratch[16384];
@@ -381,6 +412,7 @@ private:
         }
     }
 
+    // Pumps output while polling done until it is true or time runs out.
     template <typename Predicate>
     bool wait_until(Predicate done, int timeout_ms) {
         const auto deadline = std::chrono::steady_clock::now() +
@@ -403,10 +435,12 @@ private:
     Screen screen_;
 };
 
+// Asserts that the needle appears within the timeout.
 void want(Session& s, const std::string& needle, const std::string& what, int ms = 6000) {
     check(s.expect(needle, ms), what);
 }
 
+// Asserts that the needle does not appear within the timeout.
 void want_gone(Session& s, const std::string& needle, const std::string& what, int ms = 3000) {
     check(s.gone(needle, ms), what);
 }
@@ -437,6 +471,7 @@ fs::path make_fixture(const fs::path& dir, const std::string& name,
     return path;
 }
 
+// Executes raw SQL against the workspace database, throwing on error.
 void exec_sql(sqlite3* db, const std::string& sql) {
     char* err = nullptr;
     if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
@@ -456,6 +491,8 @@ struct Seed {
     std::string investigation_id;
 };
 
+// Seeds a fresh workspace with the project, targets, functions, evidence,
+// queued jobs, and investigations the scenarios rely on.
 Seed seed_workspace(const std::string& binary_unused, const fs::path& root) {
     (void)binary_unused;
     Seed seed;
@@ -582,6 +619,7 @@ Seed seed_workspace(const std::string& binary_unused, const fs::path& root) {
 // Scenarios. Each opens a fresh session against the seeded workspace.
 // ---------------------------------------------------------------------------
 
+// Startup banner, Projects page, help, and capabilities from the browser.
 void scenario_startup(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: startup and project browser\n";
     Session tui(binary, seed.workspace.string(), "");
@@ -601,6 +639,8 @@ void scenario_startup(const std::string& binary, const Seed& seed) {
     want(tui, "Projects", "Esc returns from capabilities to Projects");
 }
 
+// Create a project and navigate the browser; runs last to avoid disturbing
+// the single-project assumptions of earlier scenarios.
 void scenario_projects_mutation(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: create a project and navigate the browser\n";
     Session tui(binary, seed.workspace.string(), "");
@@ -629,6 +669,7 @@ void scenario_projects_mutation(const std::string& binary, const Seed& seed) {
     want(tui, "Projects", "browser is still on screen after cancelling");
 }
 
+// Open the seeded project from the browser into the Targets page.
 void scenario_open_project(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: open a project into the target list\n";
     Session tui(binary, seed.workspace.string(), "");
@@ -639,6 +680,7 @@ void scenario_open_project(const std::string& binary, const Seed& seed) {
     want(tui, "a analyze", "Targets help lists analyze");
 }
 
+// Active target auto-selection and re-selection.
 void scenario_target_active(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: active target selection\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -650,6 +692,7 @@ void scenario_target_active(const std::string& binary, const Seed& seed) {
     want(tui, "active target: " + seed.target_name, "Enter re-selects the target");
 }
 
+// Import prompt cancel, missing-file error, and error-then-success recovery.
 void scenario_import(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: import prompt, cancel, failure and recovery\n";
     {
@@ -688,6 +731,7 @@ void scenario_import(const std::string& binary, const Seed& seed) {
     }
 }
 
+// Functions page rows and the address-substring filter.
 void scenario_functions(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: functions page and address filter\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -713,6 +757,7 @@ void scenario_functions(const std::string& binary, const Seed& seed) {
     want(tui, "Targets", "Esc returns to Targets");
 }
 
+// Evidence list, blob-backed detail, and refresh.
 void scenario_evidence(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: evidence page and detail\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -731,6 +776,7 @@ void scenario_evidence(const std::string& binary, const Seed& seed) {
     want(tui, "Targets", "Esc returns to Targets");
 }
 
+// Jobs list, detail, and cancellation confirmation.
 void scenario_jobs(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: jobs page, detail and cancel\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -753,6 +799,7 @@ void scenario_jobs(const std::string& binary, const Seed& seed) {
     want(tui, "Targets", "Esc returns to Targets");
 }
 
+// Query form fields, navigation, and leaving the form.
 void scenario_query_form(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: query form\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -770,6 +817,7 @@ void scenario_query_form(const std::string& binary, const Seed& seed) {
     want(tui, "Targets", "Esc leaves the query form");
 }
 
+// Harness list, record detail, actions, events, and the lease guard.
 void scenario_harness_read(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: harness listing, detail, records and lease guard\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -798,6 +846,7 @@ void scenario_harness_read(const std::string& binary, const Seed& seed) {
     want(tui, "Targets", "Esc returns to Targets");
 }
 
+// Create an investigation through the prompt chain, then explore it.
 void scenario_harness_create_explore(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: harness create and explore\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -826,6 +875,7 @@ void scenario_harness_create_explore(const std::string& binary, const Seed& seed
     want(tui, "text", "explore result is shown in the text view");
 }
 
+// Project info and capabilities static detail views.
 void scenario_static_views(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: static project info and capabilities views\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -842,6 +892,7 @@ void scenario_static_views(const std::string& binary, const Seed& seed) {
     want(tui, "Targets", "Esc returns from capabilities");
 }
 
+// Detail scrolling, Home/End clamping, and find/next.
 void scenario_detail_navigation(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: detail scrolling and find\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -882,6 +933,7 @@ void scenario_detail_navigation(const std::string& binary, const Seed& seed) {
     want_gone(tui, "find:schema", "the find marker is cleared on a new view");
 }
 
+// Per-page help text stays in sync with the page bindings.
 void scenario_help_lines(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: per-page help text\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -901,6 +953,7 @@ void scenario_help_lines(const std::string& binary, const Seed& seed) {
     want(tui, "Harness", "Esc returns to Harness again");
 }
 
+// Alternative back keys: b and Left.
 void scenario_back_keys(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: alternative back keys\n";
     Session tui(binary, seed.workspace.string(), seed.project);
@@ -915,6 +968,7 @@ void scenario_back_keys(const std::string& binary, const Seed& seed) {
     want(tui, "Targets", "Left goes back");
 }
 
+// Quit confirmation can be cancelled with n or Esc.
 void scenario_quit_dialog(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: quit confirmation\n";
     Session tui(binary, seed.workspace.string(), "");
@@ -931,6 +985,7 @@ void scenario_quit_dialog(const std::string& binary, const Seed& seed) {
     want_gone(tui, "Quit IndagoRev TUI?", "Esc cancels the quit");
 }
 
+// Confirming quit exits the process.
 void scenario_quit_exits(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: confirming quit exits the process\n";
     Session tui(binary, seed.workspace.string(), "");
@@ -942,6 +997,7 @@ void scenario_quit_exits(const std::string& binary, const Seed& seed) {
     check(tui.wait_exit(6000), "process exits after confirming quit");
 }
 
+// Too-small warning, resize recovery, and the minimum supported size.
 void scenario_terminal_sizes(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: terminal size handling\n";
     {
@@ -959,6 +1015,7 @@ void scenario_terminal_sizes(const std::string& binary, const Seed& seed) {
     }
 }
 
+// The --project flag opens Targets or reports an unknown project.
 void scenario_project_flag(const std::string& binary, const Seed& seed) {
     std::cout << "scenario: --project flag\n";
     {
@@ -975,6 +1032,7 @@ void scenario_project_flag(const std::string& binary, const Seed& seed) {
 
 }  // namespace
 
+// Runs every scenario against the given binary and reports totals.
 int main(int argc, char** argv) {
     try {
         if (argc < 2) {
@@ -1023,6 +1081,7 @@ int main(int argc, char** argv) {
 
 #else  // _WIN32
 
+// Windows stub: reports that the pty suite is skipped.
 int main(int, char**) {
     std::cout << "tui_tests: skipped (forkpty unavailable on this platform)\n";
     return 0;

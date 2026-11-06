@@ -18,6 +18,8 @@ using Json = nlohmann::json;
 
 namespace {
 
+// Splits text into lines for the detail view. An empty string yields one empty
+// line so the view always has at least one row.
 std::vector<std::string> split_lines(const std::string& text) {
     std::vector<std::string> out;
     std::string line = text;
@@ -35,6 +37,8 @@ std::vector<std::string> split_lines(const std::string& text) {
     return out;
 }
 
+// Builds an indago.action.v1 request for the active target. If no target is
+// selected but targets exist, it repairs target_id from the first target.
 Json action_request(App& app, const std::string& backend,
                     const std::string& operation,
                     const std::string& address,
@@ -60,6 +64,8 @@ Json action_request(App& app, const std::string& backend,
     return request;
 }
 
+// Extracts displayable text from a result envelope: a string body, the
+// native_output/output field, or a pretty-printed dump as a fallback.
 std::string text_of(const Json& envelope) {
     const Json& data = envelope.value("data", Json::object());
     if (data.is_string()) return data.get<std::string>();
@@ -72,6 +78,7 @@ std::string text_of(const Json& envelope) {
     return data.dump(2);
 }
 
+// Looks up a job's current status, reporting "finished" if the query fails.
 std::string job_status(indago::StaticService& service, const std::string& project_name,
                        const std::string& id) {
     try {
