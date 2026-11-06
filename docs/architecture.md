@@ -1,8 +1,11 @@
 # Native static and runtime architecture
 
-The C++20 `indago` executable is the transport-neutral shared core and CLI. It
-is the only writer of project metadata. Future gRPC, GUI, and MCP frontends will
-call the same native domain layer rather than reimplement project logic.
+The C++20 `indago` executable is the transport-neutral shared core and CLI. The
+native domain layer is the single implementation of project metadata access.
+Frontends call it rather than reimplement project logic: the ncurses
+[terminal workbench](terminal-workbench.md) (`indago-tui`) and the optional
+pair-reversing GUI already do, and future gRPC and MCP frontends are expected to
+follow the same boundary.
 
 Targets are copied into a SHA-256 content store before analysis. A target row
 links a project to that immutable content. Every analysis creates a revision and
@@ -46,3 +49,7 @@ are embedded in the primary executable and extracted by content hash.
   validated at the service boundary. JSON transport is implemented, not protobuf.
 - The toolchain lock is observational and unqualified until dependency pins are
   reconciled and clean Windows/Linux qualification reports exist.
+- The terminal workbench (`indago-tui`) links `indago_core` and uses the same
+  `StaticService` and `ProjectStore` boundary. It reads `wb_investigations`
+  directly only to list investigations, because `harness_action` has no list
+  operation.

@@ -69,6 +69,14 @@ indago capabilities
 indago runtime capabilities
 ```
 
+The optional terminal workbench browses and drives the same workspace. It is
+built when ncursesw is available:
+
+```sh
+cmake --build --preset linux-native --target indago-tui
+./out/native-Linux/tui/indago-tui --workspace .indago
+```
+
 The native presets build the static engines, evidence store, CLI, and harness.
 They deliberately do not pick up locally staged tool bundles. Windows also
 embeds the checked-in DbgEng payload. Ghidra/JDK, Linux GDB, DynamoRIO, Frida,
@@ -84,6 +92,8 @@ native executable.
 ## Documentation
 
 - [Current capability contract and build profiles](docs/current-capabilities.md)
+- [Terminal workbench (TUI) and its pty tests](docs/terminal-workbench.md)
+- [Terminal workbench internals and test harness](docs/terminal-workbench-development.md)
 - [Pi coding-agent frontend and matched benchmark](agent/README.md)
 - [Diverse FLARE-On development subset](docs/development-subset-evaluation.md)
 

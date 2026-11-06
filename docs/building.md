@@ -85,6 +85,15 @@ the target. The fixture intentionally contains unresolved flow: partial native
 verdicts are expected, not promoted to complete analysis. This is a build smoke
 check, not full engine or challenge qualification.
 
+## Terminal workbench tests
+
+The ncurses workbench has a pty-driven integration suite in
+`tests/tui_tests.cpp`. It is built only when `INDAGO_BUILD_TESTS` is on and
+ncursesw is available. Configure with `-DINDAGO_BUILD_TESTS=ON`, then build the
+`indago_tui_tests` target and either run it with the workbench binary path or use
+`ctest -R indago_tui`. See [terminal workbench](terminal-workbench.md) for the
+full command lines and the pages it exercises.
+
 ## Local data
 
 Build outputs, investigation workspaces, model credentials, and the FLARE-On corpus

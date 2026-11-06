@@ -1,6 +1,8 @@
 # Repository layout
 
 - `src/`, `include/`: native platform and CLI.
+- `tui/`: ncursesw terminal workbench (`indago-tui`). Its pty integration tests
+  live in `tests/tui_tests.cpp`.
 - `components/airece/`: AIRECE source integrated into the executable, not an
   external application dependency.
 - `xair/XAIR`, `xair/XAIR_CFG`, `xair/XAIR_SYM`: pinned Git submodules from
