@@ -83,6 +83,7 @@ native executable.
 
 ## Documentation
 
+- [macOS ARM64 user guide](macBuild/USER_GUIDE.md) · [Native Mac build and tests](macBuild/README.md) — open ARM applications, browse real Ghidra results, and save notes.
 - [Current capability contract and build profiles](docs/current-capabilities.md)
 - [Pi coding-agent frontend and matched benchmark](agent/README.md)
 - [Diverse FLARE-On development subset](docs/development-subset-evaluation.md)

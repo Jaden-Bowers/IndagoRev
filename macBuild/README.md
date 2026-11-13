@@ -1,13 +1,18 @@
 # IndagoRev for macOS ARM64
 
-This is the first live analysis milestone for Apple Silicon. It uses the existing
+This is the native static-analysis build for Apple Silicon. It uses the existing
 Dear ImGui standard and compare layouts with real Ghidra analysis. The separate
 x64 application and its analysis engines remain in the original build.
+
+**Start with the [user guide](USER_GUIDE.md)** for a complete walkthrough of setup,
+opening an app, navigating code, saving notes, console commands, resource settings,
+workspace backups and troubleshooting. This README is the build and implementation
+reference, including test coverage, technical limits and dependency provenance.
 
 ## Run the application
 
 Double-click **Run ARM GUI.command** in this folder. It sets up the pinned tools,
-builds the app, and opens it. You need Apple's Command Line Tools and CMake.
+builds the app, and opens it. You need Apple's Command Line Tools and CMake 3.25+.
 The first setup downloads approximately 680 MB of official Ghidra/JDK archives;
 later launches reuse them. Nothing is installed into system directories.
 
@@ -70,9 +75,10 @@ retains the same project, notes and evidence.
 
 Books was checked on the development Mac: its universal executable has baseline
 arm64e and arm64e.x1 slices. The importer selected baseline arm64e, and Ghidra
-returned assembly and pseudocode for 256 functions. That run hit the 60-second
-analysis and 256-function detailed-code limits, so the GUI explicitly reports partial
-results. This is useful static inspection, not a complete reconstruction of Books
+returned a full discovered-function index with initial code previews. Code loading
+beyond the initial 256-function preview was also checked on a selected internal
+function. Time-limited results can remain partial even with the full discovered
+index. This is useful static inspection, not a complete reconstruction of Books
 or a guarantee that every Objective-C/Swift construct decompiles correctly.
 
 ## Build and test from Terminal
