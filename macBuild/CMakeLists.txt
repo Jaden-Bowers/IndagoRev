@@ -18,7 +18,7 @@ target_compile_definitions(indago_mac_core PRIVATE INDAGO_MAC_ROOT="${INDAGO_MAC
 target_compile_options(indago_mac_core PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(indago-mac cli.cpp)
 target_link_libraries(indago-mac PRIVATE indago_mac_core)
-add_library(indago_mac_controller controller.cpp ../gui/mock_workbench.cpp)
+add_library(indago_mac_controller controller.cpp chat.cpp ../gui/mock_workbench.cpp)
 target_link_libraries(indago_mac_controller PUBLIC indago_mac_core)
 
 # Reuse both existing layouts and the Cocoa/Metal window adapter. Only this
@@ -42,6 +42,9 @@ set_target_properties(indago-mac-gui PROPERTIES OUTPUT_NAME IndagoRev-ARM64
   MACOSX_BUNDLE_BUNDLE_VERSION "1")
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(mac-chat-tests tests/chat_tests.cpp)
+  target_link_libraries(mac-chat-tests PRIVATE indago_mac_controller)
+  add_test(NAME mac-chat-context COMMAND mac-chat-tests)
   add_executable(mac-analysis-fixture tests/fixture.c)
   # Generate distinct, retained functions past the old 256-entry boundary. These
   # are analyzed by Ghidra; the fixture is never executed by the test runner.

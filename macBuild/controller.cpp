@@ -13,6 +13,7 @@ void ApplyFunction(mock::Function& f, const Json& item) {
   f.name = item.at("name").get<std::string>();
   f.address = item.at("address").get<std::string>();
   f.signature = item.at("signature").get<std::string>();
+  f.pseudocodeAvailable = item.at("decompile_ok").get<bool>();
   f.explanation = item.at("decompile_ok").get<bool>() ? "Ghidra decompilation completed." : "Ghidra decompilation failed.";
   const auto diagnostic = item.value("diagnostic", std::string{});
   if (!diagnostic.empty()) f.explanation += "\n" + diagnostic;

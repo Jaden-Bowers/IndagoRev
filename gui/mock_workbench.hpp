@@ -16,6 +16,7 @@ struct Function {
   std::vector<std::string> code;
   std::vector<Instruction> assembly;
   bool detailsAvailable = true, external = false; // Live index entries may have no code yet.
+  bool pseudocodeAvailable = true; // A failed decompile may show a diagnostic placeholder.
 };
 struct Reference {
   int id, function, firstLine, lastLine, revision;
