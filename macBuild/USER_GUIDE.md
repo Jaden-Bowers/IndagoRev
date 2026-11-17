@@ -11,6 +11,7 @@ commands; its instructions do not apply to this app.
 - [Analyze your first application](#analyze-your-first-application)
 - [Read and navigate results](#read-and-navigate-results)
 - [Save notes and references](#save-notes-and-references)
+- [Try the offline chat](#try-the-offline-chat)
 - [Adjust time and memory](#adjust-time-and-memory)
 - [Use the in-app console](#use-the-in-app-console)
 - [Keep and recover your work](#keep-and-recover-your-work)
@@ -127,8 +128,56 @@ starting another analysis when those actions are blocked by an unsaved draft.
 Select a pseudocode line, or Shift-click to extend a selection, then use **Add
 reference** to retain a navigation reference. References last for the session and
 expire when analysis is refreshed; they are not a substitute for saved notes.
-The agent area does not provide AI replies in this build, and rename/type edits
-are not connected to the real analysis database.
+The chat area can prepare questions and context locally; see below. Rename/type
+edits are not connected to the real analysis database.
+
+## Try the offline chat
+
+The right-hand chat panel now works without credentials in **Offline preview**
+mode. It prepares a request and displays a local receipt showing what was
+included. It does not generate an AI explanation or contact any service.
+
+1. Select a function, optionally select code lines and click **Add reference**.
+2. Type a question in the chat box. The selected function's pseudocode and
+   diagnostics are included automatically; attached quotes can refer to other functions.
+3. Choose **Include assembly** or **Include saved notes** when those are relevant.
+   Both start disabled, and unsaved note drafts are never included.
+4. Click **Preview context** to inspect the exact prepared JSON snapshot. **Copy
+   context** copies it to the clipboard; **Close context** returns to the chat.
+5. Click **Send** to add the question and an **Offline preview** receipt to the
+   conversation. **Last context** reopens the snapshot even after the draft clears.
+6. Use **Stop reply** while a response is pending, or **Clear chat** to remove the
+   conversation and its saved last request from this project's chat file.
+
+The snapshot includes the target name and fingerprint, analysis identity and
+partial-result status, function name/address/signature, numbered pseudocode,
+diagnostics, attached quotes, optional assembly and optional saved notes. It does
+not read the binary bytes, entire function list, workspace files or tool logs.
+Included diagnostic text and opted-in notes can themselves contain paths or other
+project details; review the snapshot before copying or sharing it.
+The last six user/assistant messages can accompany a follow-up; earlier code
+attachments are not automatically included again. Local receipts and failures are
+excluded from model conversation context. Reattach quotes when they are needed.
+
+Context has a 64 KiB serialized limit. Individual budgets are 12 KiB of pseudocode,
+128 assembly rows within 8 KiB, eight quotes of up to 2 KiB each, 4 KiB of saved
+notes, and 2 KiB per history message. Shortened sections are marked explicitly;
+JSON escaping can make a request exceed the overall limit, in which case preparation
+fails with an explanation. Questions accept up to 4,096 bytes. These are byte
+budgets, not model token counts or a promise that a future model accepts that size.
+
+Chat history and the last request are saved locally in the project's `chat.json`.
+Up to 40 messages are retained, with older messages removed to keep the saved file
+within its size budget. History survives restart and reanalysis; the last context
+still describes its captured analysis revision. Navigation links in old messages
+expire when analysis changes and are omitted on reopening; quotes attached to the
+last sent request remain in its context snapshot. A new input has its own history. Unsent drafts,
+unsent previews and inclusion preferences are session-local. Backups may retain
+older chat content even after **Clear chat**.
+
+A provider connection point is implemented for a later local or hosted model.
+Credentials, provider selection, networking, streaming and real AI answers are
+future work. The current chat has no project-editing or command-execution tools.
 
 ## Adjust time and memory
 
@@ -190,6 +239,7 @@ and does not automatically transfer notes from the old project.
 |---|---|
 | `original.bin`, `arm64.macho`, `project.json` | Original executable snapshot, selected ARM64 slice and import metadata. |
 | `notes.md` | Explicitly saved project notes. |
+| `chat.json` | Recent conversation and the last sent context snapshot, stored locally. |
 | `analysis-<hash>.json`, `functions-<hash>.json`, `latest.json` | Verified reports, full function indexes and the pointer to the latest report. |
 | `run-*/projects/` | Ghidra databases used to fetch function code later. |
 | `function-cache/` | Cached code results for individual functions. |
@@ -264,7 +314,8 @@ running CLI analysis against a project currently being analyzed in the GUI.
 | Function code fails to load | Read Evidence/Console diagnostics, use **Retry code loading**, or **Analyze again** if the database is missing. External imports have no local body to load. |
 | Open or analysis controls are disabled | Save/discard notes and wait for or cancel the active worker. Resource settings must be positive integers. |
 | Evidence or input integrity error | Preserve the workspace and notes, then restore a known-good backup. Import the original input into a new workspace for a clean analysis if necessary. |
-| No AI response or annotation edit | These services are not connected in the macOS build. References and notes remain available. |
+| Chat returns an offline receipt | Expected until a real provider is connected. Use **Preview context** to review the prepared data. Annotation edits remain unavailable. |
+| Chat preparation fails | Finish active analysis, select a discovered function and enter a question within 4,096 bytes. Shorten quotes or omit optional data if the context exceeds its limit. |
 
 For a useful issue report, include what you opened, the displayed error, macOS
 version, time/memory settings, and the relevant console or per-run tool log.

@@ -16,7 +16,7 @@ Json Text(const std::string& value, std::size_t limit) {
   return {{"text", text}, {"truncated", text.size() != value.size()}};
 }
 std::string ReportIdentity(const Json& report) {
-  const auto text = report.dump();
+  const auto text = report.dump(2); // Match the immutable analysis report's hash.
   return Sha256(Bytes(text.begin(), text.end()));
 }
 } // namespace

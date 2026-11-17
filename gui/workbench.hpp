@@ -15,6 +15,12 @@ struct WorkbenchIntegration {
   std::function<void()> tick, open, analyze, cancel, saveNotes;
   std::function<void()> retryFunction;
   std::function<void(const std::string&)> execute;
+  // The live provider owns chat work and persistence. The renderer only edits
+  // these options, displays a snapshot and calls the requested action.
+  bool chatBusy = false, chatAssembly = false, chatNotes = false;
+  std::string chatDraft, chatContext, chatStatus = "Offline preview / nothing sent";
+  std::function<bool(const std::string&)> prepareChat, sendChat;
+  std::function<void()> cancelChat, clearChat;
 };
 void ConfigureWorkbench(WorkbenchIntegration* integration);
 mock::Workbench& WorkbenchModel();

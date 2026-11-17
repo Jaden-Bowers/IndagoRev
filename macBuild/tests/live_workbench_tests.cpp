@@ -62,6 +62,14 @@ void Wait(macbuild::Controller& controller) {
   }
   REQUIRE(!controller.view.busy);
 }
+void WaitChat(macbuild::Controller& controller) {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (controller.view.chatBusy && std::chrono::steady_clock::now() < deadline) {
+    controller.Tick();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  REQUIRE(!controller.view.chatBusy);
+}
 void Put32(macbuild::Bytes& data, std::size_t at, std::uint32_t value) {
   for (int i = 0; i < 4; ++i) data[at + i] = (value >> (24 - 8 * i)) & 255;
 }
@@ -172,6 +180,35 @@ int main(int argc, char** argv) {
       REQUIRE(model.RecallHistory(-1, "") == "goto _check_result");
       REQUIRE(model.RecallHistory(1, "") == "explain");
       REQUIRE(model.RecallHistory(1, "") == "draft");
+      // Use the actual composer and context inspector in both layouts. The
+      // receipt must be labelled offline and contain real selected evidence.
+      controller.view.chatDraft = "What does the selected function do?";
+      Click("Preview context");
+      auto context = macbuild::Json::parse(controller.view.chatContext);
+      REQUIRE(context.at("evidence").at("function").at("name") == "_check_result");
+      REQUIRE(context.at("evidence").at("references").size() == 1);
+      REQUIRE(context.at("evidence").at("function").at("assembly").empty());
+      REQUIRE(!context.at("evidence").contains("saved_notes"));
+      Click("Close context");
+      Click("Include assembly");
+      Click("Include saved notes");
+      Click("Compare layout");
+      Click("Preview context");
+      context = macbuild::Json::parse(controller.view.chatContext);
+      REQUIRE(!context.at("evidence").at("function").at("assembly").empty());
+      REQUIRE(context.at("evidence").at("saved_notes").at("text") == model.savedNotes);
+      Click("Close context");
+      Click("Send");
+      WaitChat(controller);
+      REQUIRE(controller.view.chatDraft.empty());
+      REQUIRE(model.messages.size() == 2);
+      REQUIRE(model.messages.back().role == "Offline preview");
+      REQUIRE(model.messages.back().text.find("No AI model is connected") != std::string::npos);
+      REQUIRE(model.messages.front().references.size() == 1);
+      REQUIRE(macbuild::fs::exists(p.directory / "chat.json"));
+      // Last context stays available after sending clears the draft.
+      Frame(); Click("Last context"); Click("Close context");
+      Click("Stacked layout");
       // Exercise the real settings control, then verify the next Ghidra run
       // saves the chosen deadline and extends the outer worker deadline too.
       controller.view.analysisSeconds = 299;
@@ -248,6 +285,74 @@ int main(int argc, char** argv) {
       reopened.ResumeLastProject();
       REQUIRE(reopened.view.loaded && !reopened.view.busy);
       REQUIRE(model.notes == "Persistent note about a real ARM64 function.\n");
+      REQUIRE(model.messages.size() == 2);
+      REQUIRE(model.messages.back().role == "Offline preview");
+      REQUIRE(model.messages.front().references.empty()); // No restored row indexes.
+      REQUIRE(!reopened.view.chatContext.empty());
+      REQUIRE(!reopened.view.chatAssembly && !reopened.view.chatNotes);
+      REQUIRE(!reopened.PrepareChat(" "));
+      REQUIRE(model.messages.size() == 2); // Invalid input never appends a turn.
+      const auto transcript = macbuild::Json::parse(macbuild::ReadBytes(p.directory / "chat.json"));
+      // A malformed chat file must not make notes or binary evidence unusable.
+      macbuild::WriteAtomic(p.directory / "chat.json", "not json");
+      {
+        mock::Workbench separate;
+        macbuild::Controller badChat(separate, root / "workspace");
+        badChat.ResumeLastProject();
+        REQUIRE(badChat.view.loaded && !separate.functions.empty());
+        REQUIRE(separate.notes == model.notes);
+        REQUIRE(separate.messages.empty());
+        REQUIRE(badChat.view.chatStatus.find("could not be restored") != std::string::npos);
+      }
+      macbuild::WriteAtomic(p.directory / "chat.json", transcript.dump(2));
+      // Inject a delayed provider to exercise the future connection point
+      // without credentials, a network or timing-dependent remote services.
+      {
+        mock::Workbench separate;
+        std::atomic_bool started{false};
+        macbuild::ChatProvider delayed{"Assistant", [&](const macbuild::Json& snapshot, const std::atomic_bool& stop) {
+          started = true;
+          const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+          while (!stop && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+          REQUIRE(snapshot.at("evidence").at("target_executed") == false);
+          return "A late result must be discarded after cancellation.";
+        }};
+        macbuild::Controller cancellable(separate, root / "workspace", macbuild::DefaultTools(), delayed);
+        cancellable.ResumeLastProject();
+        REQUIRE(cancellable.SendChat("Capture before navigating"));
+        REQUIRE(cancellable.view.chatBusy);
+        const auto snapshot = cancellable.view.chatContext;
+        REQUIRE(separate.SelectFunction(1));
+        REQUIRE(cancellable.view.chatContext == snapshot);
+        cancellable.StartAnalysis();
+        REQUIRE(!cancellable.view.busy); // No overlapping refresh of evidence.
+        REQUIRE(!cancellable.SendChat("Duplicate request"));
+        cancellable.view.cancelChat();
+        WaitChat(cancellable);
+        REQUIRE(started);
+        REQUIRE(separate.messages.back().role == "Chat status");
+        REQUIRE(separate.messages.back().text.find("cancelled") != std::string::npos);
+        cancellable.ClearChat();
+        REQUIRE(separate.messages.empty() && cancellable.view.chatContext.empty());
+      }
+      {
+        mock::Workbench separate;
+        macbuild::ChatProvider failure{"Assistant", [](const macbuild::Json&, const std::atomic_bool&) -> std::string {
+          throw std::runtime_error("Test provider unavailable");
+        }};
+        macbuild::Controller failing(separate, root / "workspace", macbuild::DefaultTools(), failure);
+        failing.ResumeLastProject();
+        REQUIRE(separate.messages.empty());
+        REQUIRE(failing.SendChat("Try provider"));
+        WaitChat(failing);
+        REQUIRE(separate.messages.back().role == "Chat status");
+        REQUIRE(failing.view.chatStatus.find("unavailable") != std::string::npos);
+        REQUIRE(failing.SendChat("Retry after failure"));
+        WaitChat(failing);
+        REQUIRE(separate.messages.size() == 4);
+      }
+
       REQUIRE(model.functions.size() >= 3 && model.references.empty());
       REQUIRE(reopened.view.evidence.find("Original SHA-256") != std::string::npos);
       REQUIRE(reopened.view.analysisSeconds == 60); // Preferences are session-local.

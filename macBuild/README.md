@@ -60,9 +60,11 @@ read-only with automatic analysis disabled. New full analyses use new databases
 and cache identities, so old function results cannot be mistaken for new results.
 
 The selected program is never executed. The app launches only the analysis tools.
-AI replies and decompiler edits are explicitly unavailable in this milestone.
-**Add reference** captures real pseudocode for navigation, without generating a
-scripted explanation. Assembly navigation identifies the containing function;
+Chat now supports local conversation history and reviewable evidence snapshots
+through an offline provider. Real AI replies and decompiler edits remain unavailable;
+no credentials or network requests are used. See [offline chat usage](USER_GUIDE.md#try-the-offline-chat).
+**Add reference** captures real pseudocode for navigation and chat context.
+Assembly navigation identifies the containing function;
 exact pseudocode-line mappings are not claimed.
 
 For `.app` inputs, the importer reads `Contents/Info.plist` and uses its
@@ -123,6 +125,12 @@ malformed metadata, internal/external symlinks, saved notes, and deterministic
 arm64/arm64e slice selection. Real Books analysis is a manual integration check;
 the automated tests do not depend on which system applications are installed.
 
+The chat context suite checks scope, evidence identity, missing code, stale quotes,
+UTF-8 truncation, serialized limits and optional-data inclusion without any model
+or network. The live GUI suite also clicks the composer and context inspector in
+both layouts, checks persistence and damaged-history recovery, and injects delayed
+and failing providers to verify cancellation and retry after failure.
+
 For a native window/rendering smoke check, launch the executable with
 `--smoke-test --workspace ABSOLUTE_TEST_FOLDER --file ABSOLUTE_FIXTURE_PATH`.
 It waits for real analysis and completed Metal frames, writes `native-smoke.json`
@@ -141,6 +149,8 @@ Read these implementation files in this order:
 | [analysis.hpp](analysis.hpp), [analysis.cpp](analysis.cpp) | Launch Ghidra with an argument array, enforce time/cancellation limits, persist verified results. |
 | [ghidra/MacExport.java](ghidra/MacExport.java) | Ask Ghidra for functions, pseudocode and assembly; record incomplete results. |
 | [controller.cpp](controller.cpp) | Connect background analysis and persistent notes to the shared panel model. |
+| [chat.hpp](chat.hpp), [chat.cpp](chat.cpp) | Build bounded provider-independent context, preserve provenance and provide an explicit offline receipt. |
+| [chat_controller.cpp](chat_controller.cpp) | Run chat asynchronously, handle cancellation/failures and save/restore project conversations. |
 | [desktop.mm](desktop.mm) | Present the native file chooser and restore the last project. |
 | [../gui/workbench.cpp](../gui/workbench.cpp) | Draw the existing two layouts using the optional live integration. |
 
@@ -153,12 +163,35 @@ This milestone's small file-based project store is independent of the original
 x64 core's SQLite database. It does not claim to port the full harness or all
 existing CLI contracts. Reusing those wider services is later integration work.
 
+### Connecting a future chat provider
+
+`ChatProvider` in [chat.hpp](chat.hpp) is a small injectable callback plus a display
+label. `Controller` accepts it as its fourth constructor argument; the desktop
+currently uses the default offline provider. The callback runs on a worker thread
+with an owned JSON request and a cancellation flag. It returns one plain-text
+reply, limited to 16 KiB. An exception becomes a chat status message rather than
+an assistant answer. A real adapter should use the label `Assistant` so its replies
+can participate in the next request's conversation history.
+
+Keep `BuildChatRequest` provider-independent. An adapter must translate the fixed
+`instructions`, user `question`, bounded `conversation` and untrusted `evidence`
+into the chosen model's input format without promoting evidence to instructions.
+It must respect cancellation, enforce network/response deadlines, and keep any
+credentials out of request previews, chat files and logs. Provider selection,
+secure credential loading, transport, token-budget checks and streaming remain
+separate integration work. No tool-calling or project mutation is granted by this
+interface. The injected providers in the live tests demonstrate its lifecycle
+without relying on an external API.
+
 - `out/macBuild/build/`: generated CMake files, executables, and test fixture.
 - `out/macBuild/downloads/` and `out/macBuild/deps/`: downloaded archives and tools.
 - `.indago/mac-arm64/<original-sha256>/`: default persistent project directory.
   It contains the original bytes, selected ARM64 slice, `project.json`, `notes.md`,
   immutable `analysis-<hash>.json` reports, `functions-<hash>.json` indexes,
   and a `latest.json` pointer. Each new report records its index's hash and count.
+- `chat.json` stores recent conversation and the last sent request. It is local
+  project data, independent of immutable analysis reports; it may include quoted
+  code and opted-in saved notes. Inclusion preferences reset on reopening.
 - Per-run tool logs are retained inside the project for diagnosis. Failed runs
   can retain temporary Ghidra files; these are not analysis results.
 - `run-*/projects/` retains each completed Ghidra analysis database for later

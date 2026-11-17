@@ -18,7 +18,7 @@ target_compile_definitions(indago_mac_core PRIVATE INDAGO_MAC_ROOT="${INDAGO_MAC
 target_compile_options(indago_mac_core PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(indago-mac cli.cpp)
 target_link_libraries(indago-mac PRIVATE indago_mac_core)
-add_library(indago_mac_controller controller.cpp chat.cpp ../gui/mock_workbench.cpp)
+add_library(indago_mac_controller controller.cpp chat.cpp chat_controller.cpp ../gui/mock_workbench.cpp)
 target_link_libraries(indago_mac_controller PUBLIC indago_mac_core)
 
 # Reuse both existing layouts and the Cocoa/Metal window adapter. Only this

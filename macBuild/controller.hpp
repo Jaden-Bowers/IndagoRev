@@ -1,5 +1,6 @@
 #pragma once
 #include "analysis.hpp"
+#include "chat.hpp"
 #include "../gui/workbench.hpp"
 #include "../gui/mock_workbench.hpp"
 #include <future>
@@ -10,7 +11,8 @@ namespace macbuild {
 // Real mode reuses its selection/notes behavior, never its fake analysis/chat.
 class Controller {
 public:
-  Controller(mock::Workbench& state, fs::path workspace, Tools tools = DefaultTools());
+  Controller(mock::Workbench& state, fs::path workspace, Tools tools = DefaultTools(),
+             ChatProvider chatProvider = {});
   ~Controller();
   WorkbenchIntegration view;
   void Open(const fs::path& file);
@@ -19,10 +21,16 @@ public:
   void Tick();
   void SaveNotes();
   void Execute(const std::string& command);
+  bool PrepareChat(const std::string& question);
+  bool SendChat(const std::string& question);
+  void ClearChat();
 private:
   void ShowProject(Project project);
   void ShowReport(const Json& report);
   void LoadSelectedFunction();
+  void PollChat();
+  void SaveChat();
+  void RestoreChat();
   mock::Workbench& state;
   fs::path workspace;
   Tools tools;
@@ -33,6 +41,10 @@ private:
   int requestRevision = 0;
   bool preparingDatabase = false;
   std::atomic_bool cancelled{false};
+  ChatProvider chatProvider;
+  std::future<std::string> chatPending;
+  std::atomic_bool chatCancelled{false};
+  Json lastChatRequest;
 };
 } // namespace macbuild
 

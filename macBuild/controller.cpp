@@ -29,8 +29,8 @@ void ApplyFunction(mock::Function& f, const Json& item) {
 }
 
 }
-Controller::Controller(mock::Workbench& model, fs::path folder, Tools settings)
-    : state(model), workspace(fs::absolute(folder)), tools(std::move(settings)) {
+Controller::Controller(mock::Workbench& model, fs::path folder, Tools settings, ChatProvider provider)
+    : state(model), workspace(fs::absolute(folder)), tools(std::move(settings)), chatProvider(std::move(provider)) {
   // Remove every synthetic fixture before the real window is displayed.
   state.functions.clear(); state.messages.clear(); state.references.clear();
   state.activity.clear(); state.console.clear(); state.history.clear();
@@ -46,14 +46,20 @@ Controller::Controller(mock::Workbench& model, fs::path folder, Tools settings)
   };
   view.saveNotes = [this] { SaveNotes(); };
   view.execute = [this](const std::string& command) { Execute(command); };
+  view.prepareChat = [this](const std::string& question) { return PrepareChat(question); };
+  view.sendChat = [this](const std::string& question) { return SendChat(question); };
+  view.cancelChat = [this] { chatCancelled = true; };
+  view.clearChat = [this] { ClearChat(); };
   state.Log("Open a .app or ARM64 Mach-O file. Analysis never executes the selected program.");
 }
 
 Controller::~Controller() {
   cancelled = true;
+  chatCancelled = true;
   // The runner polls cancellation, kills its process group and reaps Java.
   // Wait before destroying fields referenced by the background task.
   if (pending.valid()) pending.wait();
+  if (chatPending.valid()) chatPending.wait();
 }
 
 void Controller::ShowProject(Project next) {
@@ -72,11 +78,12 @@ void Controller::ShowProject(Project next) {
   if (project->metadata.contains("bundle_executable"))
     state.Log("Application main executable: " + project->metadata.at("bundle_executable").get<std::string>());
   WriteAtomic(workspace / "last-project.json", Json{{"sha256", project->metadata.at("sha256")}}.dump());
+  RestoreChat();
   if (fs::exists(project->directory / "latest.json")) ShowReport(LoadAnalysis(*project));
 }
 
 void Controller::Open(const fs::path& file) {
-  if (view.busy || state.Dirty()) { state.Log("Save/discard notes and finish analysis before opening another file."); return; }
+  if (view.busy || view.chatBusy || state.Dirty()) { state.Log("Save/discard notes and finish active work before opening another file."); return; }
   try {
     ShowProject(Import(file, workspace));
     state.Log("Opened " + view.target + "; saved notes and evidence restored.");
@@ -96,7 +103,7 @@ void Controller::ResumeLastProject() {
 }
 
 void Controller::StartAnalysis() {
-  if (!project || view.busy || state.Dirty()) { state.Log("Open a file and save/discard notes before analyzing."); return; }
+  if (!project || view.busy || view.chatBusy || state.Dirty()) { state.Log("Open a file, save/discard notes and finish chat before analyzing."); return; }
   cancelled = false;
   const Project snapshot = *project;
   try {
@@ -114,6 +121,7 @@ void Controller::StartAnalysis() {
 }
 
 void Controller::Tick() {
+  PollChat();
   if (view.busy) {
     // Only one worker touches the saved database at a time. A new selection
     // cancels an obsolete detail request and starts after that worker is reaped.
@@ -162,7 +170,7 @@ void Controller::Tick() {
 }
 
 void Controller::LoadSelectedFunction() {
-  if (!project || view.busy || activeReport.is_null() || state.functions.empty() || state.showNotes) return;
+  if (!project || view.busy || view.chatBusy || activeReport.is_null() || state.functions.empty() || state.showNotes) return;
   auto& function = state.functions[state.selected];
   if (function.detailsAvailable || function.external) { attemptedAddress.clear(); return; }
   if (function.address == attemptedAddress) return;

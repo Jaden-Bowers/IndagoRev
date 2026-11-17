@@ -62,7 +62,7 @@ void DrawSettings() {
   }
   ImGui::SliderFloat("Text size", &ImGui::GetStyle().FontSizeBase, 13, 20, "%.0f");
   if (live) {
-    Wrapped("Native macOS ARM64 / Ghidra static analysis. Notes and evidence are saved in the workspace. AI and live annotations are not connected.");
+    Wrapped("Native macOS ARM64 / Ghidra static analysis. Notes and evidence are saved in the workspace. Chat uses a local offline preview. Live annotations are not connected.");
     ImGui::BeginDisabled(live->busy);
     ImGui::SetNextItemWidth(160);
     ImGui::InputInt("Analysis time (seconds)", &live->analysisSeconds);
@@ -105,7 +105,7 @@ void DrawHeader() {
     DrawSettings();
     ImGui::Separator();
     Wrapped(live->target + " | Mach-O / ARM64 | " + live->producer);
-    ImGui::BeginDisabled(live->busy || model.Dirty());
+    ImGui::BeginDisabled(live->busy || live->chatBusy || model.Dirty());
     if (ImGui::Button("Open app or ARM64 file...")) live->open();
     ImGui::SameLine();
     ImGui::BeginDisabled(!live->loaded || live->analysisSeconds < 1 || live->analysisMemoryGiB < 1);
@@ -487,15 +487,83 @@ void DrawCitation(const mock::Reference& ref) {
   }
 }
 
-void DrawAgent() {
-  if (live) {
-    Heading("References");
-    Wrapped("AI chat is not connected. These references quote the real decompiled listing; no scripted answer is presented as analysis.");
-    for (const auto& ref : model.references) {
-      ImGui::PushID(ref.id); DrawCitation(ref); ImGui::PopID();
+// The live chat uses the controller's provider boundary, never the mock reply
+// generator. Prepared JSON is visible before a future network adapter sees it.
+void DrawLiveAgent() {
+  Heading("Chat / offline preview");
+  Wrapped("No AI model connected. Send prepares a local receipt; no data leaves this app.");
+  const float logHeight = std::max(100.0f, ImGui::GetContentRegionAvail().y * 0.40f);
+  if (ImGui::BeginChild("Live conversation", ImVec2(0, logHeight), ImGuiChildFlags_Borders)) {
+    const bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 8;
+    for (int i = 0; i < static_cast<int>(model.messages.size()); ++i) {
+      ImGui::PushID(i);
+      const auto& message = model.messages[i];
+      ImGui::TextDisabled("%s", message.role.c_str());
+      Wrapped(message.text);
+      for (int j = 0; j < static_cast<int>(message.references.size()); ++j) {
+        ImGui::PushID(j); DrawCitation(message.references[j]); ImGui::PopID();
+      }
+      ImGui::Separator();
+      ImGui::PopID();
     }
-    return;
+    if (scrollChat || atBottom) { ImGui::SetScrollHereY(1); scrollChat = false; }
   }
+  ImGui::EndChild();
+  if (!model.references.empty()) {
+    int remove = -1;
+    if (ImGui::BeginChild("Chat references", ImVec2(0, 70), ImGuiChildFlags_Borders)) {
+      for (const auto& reference : model.references) {
+        ImGui::PushID(reference.id); DrawCitation(reference);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) remove = reference.id;
+        ImGui::PopID();
+      }
+    }
+    ImGui::EndChild();
+    if (remove >= 0) model.RemoveReference(remove);
+  }
+  ImGui::Checkbox("Include assembly", &live->chatAssembly);
+  SameLineIfFits("Include saved notes");
+  ImGui::Checkbox("Include saved notes", &live->chatNotes);
+  ImGui::TextUnformatted("Ask about the selected function");
+  ImGui::InputTextMultiline("##Live prompt", &live->chatDraft, ImVec2(-1, 80));
+  ImGui::BeginDisabled(!live->loaded || live->busy || live->chatBusy || live->chatDraft.empty());
+  if (ImGui::Button("Send") && live->sendChat(live->chatDraft)) {
+    live->chatDraft.clear(); scrollChat = true;
+  }
+  SameLineIfFits("Preview context");
+  if (ImGui::Button("Preview context") && live->prepareChat(live->chatDraft))
+    ImGui::OpenPopup("Prepared chat context");
+  ImGui::EndDisabled();
+  if (live->chatBusy) {
+    SameLineIfFits("Stop reply");
+    if (ImGui::Button("Stop reply")) live->cancelChat();
+  }
+  ImGui::BeginDisabled(live->chatContext.empty());
+  if (ImGui::SmallButton("Last context")) ImGui::OpenPopup("Prepared chat context");
+  ImGui::EndDisabled();
+  SameLineIfFits("Clear chat");
+  ImGui::BeginDisabled(live->chatBusy || model.messages.empty());
+  if (ImGui::SmallButton("Clear chat")) live->clearChat();
+  ImGui::EndDisabled();
+  Wrapped(live->chatStatus);
+
+  const auto* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowSize(ImVec2(std::min(900.0f, viewport->Size.x - 40),
+                                 std::min(650.0f, viewport->Size.y - 40)), ImGuiCond_Appearing);
+  if (ImGui::BeginPopupModal("Prepared chat context", nullptr)) {
+    Wrapped("Snapshot for the last prepared question. Code, quotes and notes have explicit size limits; truncation is recorded. Nothing is sent in offline preview mode.");
+    ImGui::InputTextMultiline("##Context JSON", &live->chatContext, ImVec2(-1, -ImGui::GetFrameHeightWithSpacing()),
+                              ImGuiInputTextFlags_ReadOnly);
+    if (ImGui::Button("Copy context")) ImGui::SetClipboardText(live->chatContext.c_str());
+    ImGui::SameLine();
+    if (ImGui::Button("Close context")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+}
+
+void DrawAgent() {
+  if (live) { DrawLiveAgent(); return; }
   Heading("Agent / scripted preview");
   const float composerHeight = 100 + ImGui::GetFrameHeightWithSpacing() * 3 +
                                (model.references.empty() ? 0 : 86);
